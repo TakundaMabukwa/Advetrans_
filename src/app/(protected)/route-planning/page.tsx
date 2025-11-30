@@ -1,13 +1,13 @@
 "use client"
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ArrowLeft, Route, MapPin, CheckCircle } from 'lucide-react'
 import { RoutePreviewMap } from '@/components/ui/route-preview-map'
 
-export default function RoutePlanningPage() {
+function RoutePlanningContent() {
   const searchParams = useSearchParams()
   const router = useRouter()
   const [vehicleData, setVehicleData] = useState<any>(null)
@@ -261,5 +261,13 @@ export default function RoutePlanningPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function RoutePlanningPage() {
+  return (
+    <Suspense fallback={<div className="p-6">Loading...</div>}>
+      <RoutePlanningContent />
+    </Suspense>
   )
 }
