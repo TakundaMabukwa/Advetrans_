@@ -23,13 +23,6 @@ export default function AuditPage() {
         
         if (error) throw error
         
-        const { data: pendingOrders, error: ordersError } = await supabase
-          .from('pending_orders')
-          .select('*')
-          .not('trip_id', 'is', null)
-        
-        if (ordersError) throw ordersError
-        
         const { data: driversData, error: driversError } = await supabase
           .from('drivers')
           .select('id, first_name, surname, cell_number')
@@ -37,14 +30,6 @@ export default function AuditPage() {
         if (driversError) throw driversError
         
         const driversMap = new Map(driversData?.map(d => [d.id, d]) || [])
-        
-        const ordersByTrip = new Map()
-        for (const order of pendingOrders || []) {
-          if (!ordersByTrip.has(order.trip_id)) {
-            ordersByTrip.set(order.trip_id, [])
-          }
-          ordersByTrip.get(order.trip_id).push(order)
-        }
         
         const driverMap = new Map()
         
@@ -65,7 +50,8 @@ export default function AuditPage() {
                   vehicle: vehicle
                 })
               }
-              trip.orders = ordersByTrip.get(trip.trip_id) || []
+              const stopPoints = trip.stop_points || []
+              trip.orders = stopPoints.sort((a: any, b: any) => (a.sequence || 0) - (b.sequence || 0))
               driverMap.get(driver.id).trips.push(trip)
             }
           }
@@ -108,8 +94,6 @@ export default function AuditPage() {
             drivers.map((driver) => (
               driver.trips.map((trip: any) => {
                 const orders = trip.orders || []
-                const totalWeight = orders.reduce((s: number, o: any) => s + (parseFloat(o.total_weight) || 0), 0)
-                const netWeight = orders.reduce((s: number, o: any) => s + (parseFloat(o.net_weight) || 0), 0)
                 const isExpanded = expandedTrip === trip.trip_id
                 
                 return (
@@ -169,15 +153,15 @@ export default function AuditPage() {
                             </td>
                             <td className="py-2 px-3">-</td>
                             <td className="py-2 px-3">ZA24</td>
-                            <td className="py-2 px-3 font-semibold">{totalWeight.toFixed(0)}</td>
+                            <td className="py-2 px-3 font-semibold">-</td>
                             <td className="py-2 px-3 truncate max-w-[120px]">{trip.destination || '-'}</td>
                             <td className="py-2 px-3">{trip.time_completed ? new Date(trip.time_completed).toLocaleDateString('en-GB') : '-'}</td>
-                            <td className="py-2 px-3 font-semibold">{netWeight.toFixed(0)}</td>
+                            <td className="py-2 px-3 font-semibold">-</td>
                             <td className="py-2 px-3">Dyna</td>
                             <td className="py-2 px-3">{trip.time_accepted ? new Date(trip.time_accepted).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '-'}</td>
                             <td className="py-2 px-3">{trip.time_on_trip ? new Date(trip.time_on_trip).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '-'}</td>
                             <td className="py-2 px-3">{trip.time_completed ? new Date(trip.time_completed).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '-'}</td>
-                            <td rowSpan={isExpanded ? orders.length + 2 : 1} className="py-2 px-3 bg-slate-50 align-top border-l">
+                            <td rowSpan={isExpanded ? orders.length + 1 : 1} className="py-2 px-3 bg-slate-50 align-top border-l">
                               <div className="space-y-2 min-w-[160px]">
                                 <div>
                                   <div className="font-semibold text-slate-600 text-[10px] uppercase tracking-wide">Driver</div>
@@ -208,24 +192,17 @@ export default function AuditPage() {
                             <>
                               {orders.map((order: any, idx: number) => (
                                 <tr key={`${trip.id}-${idx}`} className="bg-blue-50 border-b">
-                                  <td className="py-2 px-3 pl-8 text-slate-600">{order.customer_id || '-'}</td>
-                                  <td className="py-2 px-3">{order.customer_name}</td>
-                                  <td className="py-2 px-3">{order.customer_name}</td>
-                                  <td className="py-2 px-3">{order.shipping_point || 'ZA24'}</td>
-                                  <td className="py-2 px-3">{parseFloat(order.total_weight || 0).toFixed(0)}</td>
-                                  <td className="py-2 px-3 truncate max-w-[120px]">{order.location || '-'}</td>
-                                  <td className="py-2 px-3">{order.delivery_date || '-'}</td>
-                                  <td className="py-2 px-3">{parseFloat(order.net_weight || 0).toFixed(0)}</td>
-                                  <td colSpan={4} className="py-2 px-3 text-slate-500">Customer {idx + 1} of {orders.length}</td>
+                                  <td className="py-2 px-3 pl-8 text-slate-600">{order.sequence || idx + 1}</td>
+                                  <td className="py-2 px-3">-</td>
+                                  <td className="py-2 px-3">{order.customer || '-'}</td>
+                                  <td className="py-2 px-3">ZA24</td>
+                                  <td className="py-2 px-3">-</td>
+                                  <td className="py-2 px-3 truncate max-w-[120px]">-</td>
+                                  <td className="py-2 px-3">-</td>
+                                  <td className="py-2 px-3">-</td>
+                                  <td colSpan={4} className="py-2 px-3 text-slate-500">Stop {order.sequence || idx + 1} of {orders.length}</td>
                                 </tr>
                               ))}
-                              <tr className="bg-slate-100 border-b font-semibold">
-                                <td colSpan={4} className="text-right py-2 px-3">Total:</td>
-                                <td className="py-2 px-3">{totalWeight.toFixed(0)}</td>
-                                <td colSpan={2}></td>
-                                <td className="py-2 px-3">{netWeight.toFixed(0)}</td>
-                                <td colSpan={4}></td>
-                              </tr>
                             </>
                           )}
                         </tbody>
