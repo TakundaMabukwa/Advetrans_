@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { TruckRouteOptimizer } from '@/lib/route-optimization';
+import { TruckRouteOptimizer } from '@/lib/route-optimization.ts';
 
 export async function POST(request: NextRequest) {
   try {
