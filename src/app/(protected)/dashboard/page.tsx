@@ -554,7 +554,7 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
         const progress = getTripProgress(trip.status)
 
         const clientDetails = typeof trip.clientdetails === 'string' ? JSON.parse(trip.clientdetails) : trip.clientdetails
-        const title = clientDetails?.name || trip.selectedClient || trip.clientDetails?.name || `Trip ${trip.trip_id || trip.id}`
+        const stopPoints = trip.stop_points || []
         const hasUnauthorizedStops = trip.unauthorized_stops_count > 0
 
         return (
@@ -672,8 +672,7 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
               <Truck className="w-4 h-4 text-indigo-700" />
               </div>
               <div className="min-w-0">
-              <h3 className="font-semibold text-black text-sm truncate">{title}</h3>
-              <p className="text-xs text-gray-700">Trip #{trip.trip_id || trip.id}</p>
+              <h3 className="font-semibold text-black text-sm">Trip #{trip.trip_id || trip.id}</h3>
               </div>
               </div>
               </div>
@@ -704,9 +703,19 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
               <div className="bg-white rounded-lg p-2 border border-slate-100">
               <div className="flex items-center gap-1 mb-1">
               <div className="w-1.5 h-1.5 bg-red-500 rounded-full"></div>
-              <span className="text-xs font-medium text-gray-700 uppercase">Drop-off</span>
+              <span className="text-xs font-medium text-gray-700 uppercase">Drop-off ({stopPoints.length} stops)</span>
               </div>
-              <p className="text-xs font-medium text-black truncate">{trip.destination || 'Not specified'}</p>
+              {stopPoints.length > 0 ? (
+                <select className="w-full text-xs font-medium text-black bg-white border border-slate-200 rounded-md px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer hover:border-slate-300 transition-colors">
+                  {stopPoints.sort((a, b) => (a.sequence || 0) - (b.sequence || 0)).map((stop, idx) => (
+                    <option key={idx} value={stop.customer} className="py-1">
+                      {idx + 1}. {stop.customer}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-xs font-medium text-black truncate">No stops</p>
+              )}
               </div>
               </div>
 

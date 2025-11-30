@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { ArrowLeft, Route, MapPin, CheckCircle, Save } from 'lucide-react'
+import { ArrowLeft, Route, MapPin, CheckCircle, Save, Truck, Gauge, Weight, Navigation, Clock, User } from 'lucide-react'
 import { VehicleRouteMap } from '@/components/ui/vehicle-route-map'
 import { toast } from 'sonner'
 import { reoptimizeVehicleRoute } from '@/lib/reoptimize-vehicle-route'
@@ -25,6 +25,9 @@ export default function VehicleRoutePlanningPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [drivers, setDrivers] = useState<any[]>([])
   const [selectedDriver, setSelectedDriver] = useState<string>('')
+  const [routeDistance, setRouteDistance] = useState<number | null>(null)
+  const [routeDuration, setRouteDuration] = useState<number | null>(null)
+  const [assignedDriverName, setAssignedDriverName] = useState<string | null>(null)
 
   const DEFAULT_LOADING_SITE = "Fuchs Lubricants, Stikland Industrial, 9 Square Street, Bellville 7530"
 
@@ -82,15 +85,15 @@ export default function VehicleRoutePlanningPage() {
       })
       setAssignedOrders(sortedOrders)
       
-      const { data: routeData } = await supabase
-        .from('vehicle_routes')
-        .select('route_geometry, distance, duration')
-        .eq('vehicle_id', vehicleId)
-        .eq('scheduled_date', selectedDate)
-        .single()
-      
-      if (routeData?.route_geometry) {
-        setRouteGeometry(routeData.route_geometry)
+      // Optimize route based on customer stops
+      if (sortedOrders.length > 0 && sortedOrders.every(o => o.latitude && o.longitude)) {
+        console.log('Optimizing route for orders:', sortedOrders.length)
+        const { orders: optimizedOrders, distance, duration, geometry } = await reoptimizeVehicleRoute(sortedOrders)
+        console.log('Route optimized:', { distance, duration, hasGeometry: !!geometry })
+        setAssignedOrders(optimizedOrders)
+        setRouteGeometry(geometry)
+        setRouteDistance(Math.round(distance / 1000))
+        setRouteDuration(duration)
       }
 
       const { data: unassignedData } = await supabase
@@ -106,6 +109,15 @@ export default function VehicleRoutePlanningPage() {
         .order('first_name')
       
       setDrivers(driversData || [])
+
+      // Check if orders already have an assigned driver
+      if (sortedOrders.length > 0 && sortedOrders[0].assigned_driver_id) {
+        const driverId = sortedOrders[0].assigned_driver_id
+        const driver = driversData?.find(d => d.id === driverId)
+        if (driver) {
+          setAssignedDriverName(`${driver.first_name} ${driver.surname}`)
+        }
+      }
     } catch (error) {
       console.error('Error loading vehicle data:', error)
       toast.error('Failed to load vehicle data')
@@ -153,24 +165,46 @@ export default function VehicleRoutePlanningPage() {
     e.dataTransfer.dropEffect = 'move'
   }
 
-  const handleDropToAssigned = (e: React.DragEvent) => {
+  const handleDropToAssigned = async (e: React.DragEvent) => {
     e.preventDefault()
     if (!draggedItem) return
 
     if (draggedItem.source === 'unassigned') {
+      const newAssigned = [...assignedOrders, draggedItem.order]
       setUnassignedOrders(prev => prev.filter(o => o.id !== draggedItem.order.id))
-      setAssignedOrders(prev => [...prev, draggedItem.order])
+      setAssignedOrders(newAssigned)
+      
+      if (newAssigned.every(o => o.latitude && o.longitude)) {
+        const { orders, distance, duration, geometry } = await reoptimizeVehicleRoute(newAssigned)
+        setAssignedOrders(orders)
+        setRouteGeometry(geometry)
+        setRouteDistance(Math.round(distance / 1000))
+        setRouteDuration(duration)
+      }
     }
     setDraggedItem(null)
   }
 
-  const handleDropToUnassigned = (e: React.DragEvent) => {
+  const handleDropToUnassigned = async (e: React.DragEvent) => {
     e.preventDefault()
     if (!draggedItem) return
 
     if (draggedItem.source === 'assigned') {
-      setAssignedOrders(prev => prev.filter(o => o.id !== draggedItem.order.id))
+      const newAssigned = assignedOrders.filter(o => o.id !== draggedItem.order.id)
+      setAssignedOrders(newAssigned)
       setUnassignedOrders(prev => [...prev, draggedItem.order])
+      
+      if (newAssigned.length > 0 && newAssigned.every(o => o.latitude && o.longitude)) {
+        const { orders, distance, duration, geometry } = await reoptimizeVehicleRoute(newAssigned)
+        setAssignedOrders(orders)
+        setRouteGeometry(geometry)
+        setRouteDistance(Math.round(distance / 1000))
+        setRouteDuration(duration)
+      } else {
+        setRouteGeometry(null)
+        setRouteDistance(null)
+        setRouteDuration(null)
+      }
     }
     setDraggedItem(null)
   }
@@ -207,17 +241,23 @@ export default function VehicleRoutePlanningPage() {
           .eq('id', order.id)
       }
 
+      await supabase
+        .from('vehicle_routes')
+        .delete()
+        .eq('vehicle_id', vehicleId)
+        .eq('scheduled_date', selectedDate)
+
       if (geometry && optimizedOrders.length > 0) {
         await supabase
           .from('vehicle_routes')
-          .upsert({
+          .insert({
             vehicle_id: vehicleId,
             scheduled_date: selectedDate,
             route_geometry: geometry,
             distance,
             duration,
             updated_at: new Date().toISOString()
-          }, { onConflict: 'vehicle_id,scheduled_date' })
+          })
       }
 
       toast.success('Route optimized and saved successfully')
@@ -262,74 +302,113 @@ export default function VehicleRoutePlanningPage() {
           </Button>
         </div>
 
-        <div className="grid grid-cols-5 gap-4">
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-sm text-gray-600">Vehicle</p>
-              <p className="font-semibold">{vehicle.registration_number}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-sm text-gray-600">Utilization</p>
-              <p className="font-semibold">{utilization.toFixed(0)}%</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-sm text-gray-600">Loaded Weight</p>
-              <p className="font-semibold">{Math.round(totalWeight)}kg / {capacity}kg</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6">
-              <p className="text-sm text-gray-600">Delivery Stops</p>
-              <p className="font-semibold">{assignedOrders.length}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-6 space-y-2">
-              <p className="text-sm text-gray-600">Assign Driver</p>
-              <select
-                value={selectedDriver}
-                onChange={(e) => setSelectedDriver(e.target.value)}
-                className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-              >
-                <option value="">Select driver...</option>
-                {drivers.map(driver => (
-                  <option key={driver.id} value={driver.id}>
-                    {driver.first_name} {driver.surname} {driver.available ? '' : '(busy)'}
-                  </option>
-                ))}
-              </select>
-              <Button
-                onClick={handleAssignDriver}
-                disabled={!selectedDriver || assignedOrders.length === 0}
-                size="sm"
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                Assign
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
+        <div className="bg-white rounded-xl border border-slate-200 p-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
+                <Truck className="h-5 w-5 text-blue-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-slate-500 mb-0.5">Vehicle</p>
+                <p className="text-lg font-semibold text-slate-900 truncate">{vehicle.registration_number}</p>
+              </div>
+            </div>
 
-        {routeGeometry && (
-          <div className="grid grid-cols-2 gap-4">
-            <Card>
-              <CardContent className="pt-6">
-                <p className="text-sm text-gray-600">Route Distance</p>
-                <p className="font-semibold text-lg">View on map</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <p className="text-sm text-gray-600">Estimated Duration</p>
-                <p className="font-semibold text-lg">View on map</p>
-              </CardContent>
-            </Card>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
+                <Gauge className="h-5 w-5 text-purple-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-slate-500 mb-0.5">Utilization</p>
+                <p className="text-lg font-semibold text-slate-900">{utilization.toFixed(0)}%</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center flex-shrink-0">
+                <Weight className="h-5 w-5 text-orange-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-slate-500 mb-0.5">Weight</p>
+                <p className="text-lg font-semibold text-slate-900">{Math.round(totalWeight)}<span className="text-sm text-slate-400">/{capacity}kg</span></p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
+                <MapPin className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-slate-500 mb-0.5">Stops</p>
+                <p className="text-lg font-semibold text-slate-900">{assignedOrders.length}</p>
+              </div>
+            </div>
+
+            {routeDistance ? (
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-cyan-50 flex items-center justify-center flex-shrink-0">
+                  <Navigation className="h-5 w-5 text-cyan-600" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-slate-500 mb-0.5">Distance</p>
+                  <p className="text-lg font-semibold text-slate-900">{routeDistance} km</p>
+                </div>
+              </div>
+            ) : null}
+
+            {routeDuration ? (
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-pink-50 flex items-center justify-center flex-shrink-0">
+                  <Clock className="h-5 w-5 text-pink-600" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-slate-500 mb-0.5">Duration</p>
+                  <p className="text-lg font-semibold text-slate-900">{Math.floor(routeDuration / 60)}h {routeDuration % 60}m</p>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="flex items-center gap-3 col-span-2 md:col-span-1">
+              <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
+                <User className="h-5 w-5 text-indigo-600" />
+              </div>
+              <div className="min-w-0 flex-1">
+                {assignedDriverName ? (
+                  <>
+                    <p className="text-xs text-slate-500 mb-0.5">Driver</p>
+                    <p className="text-lg font-semibold text-slate-900 truncate">{assignedDriverName}</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs text-slate-500 mb-1">Assign Driver</p>
+                    <div className="flex gap-2">
+                      <select
+                        value={selectedDriver}
+                        onChange={(e) => setSelectedDriver(e.target.value)}
+                        className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                      >
+                        <option value="">Select...</option>
+                        {drivers.map(driver => (
+                          <option key={driver.id} value={driver.id}>
+                            {driver.first_name} {driver.surname}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        onClick={handleAssignDriver}
+                        disabled={!selectedDriver || assignedOrders.length === 0}
+                        size="sm"
+                        className="h-8 px-3 text-xs bg-indigo-600 hover:bg-indigo-700 text-white disabled:bg-slate-300"
+                      >
+                        Assign
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
-        )}
+        </div>
 
         {assignedOrders.length > 0 && assignedOrders.every(o => o.latitude && o.longitude) && (
           <Card>
@@ -341,16 +420,7 @@ export default function VehicleRoutePlanningPage() {
             </CardHeader>
             <CardContent>
               <VehicleRouteMap
-                geometry={(() => {
-                  if (!routeGeometry) return null
-                  if (routeGeometry.type === 'LineString') return routeGeometry
-                  if (Array.isArray(routeGeometry) && routeGeometry.length > 0) {
-                    if (Array.isArray(routeGeometry[0]) && typeof routeGeometry[0][0] === 'number') {
-                      return { type: 'LineString', coordinates: routeGeometry }
-                    }
-                  }
-                  return null
-                })()}
+                geometry={routeGeometry && Array.isArray(routeGeometry) ? { type: 'LineString', coordinates: routeGeometry } : null}
                 stops={assignedOrders
                   .filter(o => o.latitude && o.longitude)
                   .sort((a, b) => (a.delivery_sequence || 999) - (b.delivery_sequence || 999))

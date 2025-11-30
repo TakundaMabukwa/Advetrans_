@@ -1080,8 +1080,10 @@ export async function assignVehiclesWithDrivers(
       assignment.routeDistance = result.distance
       assignment.routeDuration = result.duration
       
+      // Store full route geometry for map display
       if (result.geometry) {
         (assignment as any).routeGeometry = result.geometry
+        console.log(`Stored route geometry for ${assignment.vehicle.registration_number}: ${result.geometry.coordinates?.length || 0} points`)
       }
     }
   }

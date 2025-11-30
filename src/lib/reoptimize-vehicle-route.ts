@@ -1,5 +1,3 @@
-import { optimizeMultiVehicleRoutes, type Customer, type Vehicle as GeoVehicle } from './geoapify-route-optimizer'
-
 const DEPOT_LAT = -33.9249
 const DEPOT_LON = 18.6369
 
@@ -10,40 +8,41 @@ export async function reoptimizeVehicleRoute(orders: any[]) {
     return { orders, distance: 0, duration: 0, geometry: null }
   }
 
-  if (validOrders.length === 1) {
-    return { orders, distance: 0, duration: 0, geometry: null }
-  }
-
   try {
-    const customers: Customer[] = validOrders.map((o, idx) => ({
-      id: `job-${idx}`,
-      name: o.customerName || o.customer_name,
-      latitude: o.latitude,
-      longitude: o.longitude,
-      weight: Math.round(o.totalWeight || o.total_weight || 0),
-      deliveryDuration: 300
-    }))
-
-    const vehicle: GeoVehicle = {
-      id: 'route-optimizer',
-      name: 'Route Optimizer',
-      capacity: 999999,
-      startLocation: { lat: DEPOT_LAT, lng: DEPOT_LON }
+    const geoapifyKey = process.env.NEXT_PUBLIC_GEOAPIFY_API_KEY
+    if (!geoapifyKey) {
+      return { orders, distance: 0, duration: 0, geometry: null }
     }
 
-    const routes = await optimizeMultiVehicleRoutes([vehicle], customers, { lat: DEPOT_LAT, lng: DEPOT_LON })
-
-    if (routes.length > 0 && routes[0].customers.length === customers.length) {
-      const optimized = routes[0].customers.map(c =>
-        orders.find(o => (o.customerName || o.customer_name) === c.name)
-      ).filter(Boolean)
-
-      return {
-        orders: optimized,
-        distance: routes[0].totalDistance,
-        duration: routes[0].totalDuration,
-        geometry: routes[0].geometry
+    const waypoints = [
+      `${DEPOT_LAT},${DEPOT_LON}`,
+      ...validOrders.map(o => `${o.latitude},${o.longitude}`),
+      `${DEPOT_LAT},${DEPOT_LON}`
+    ].join('|')
+    
+    const response = await fetch(
+      `https://api.geoapify.com/v1/routing?waypoints=${waypoints}&mode=truck&apiKey=${geoapifyKey}`
+    )
+    
+    if (response.ok) {
+      const data = await response.json()
+      console.log('Geoapify response:', data)
+      if (data.features?.[0]) {
+        const feature = data.features[0]
+        const result = {
+          orders: validOrders,
+          distance: Math.round(feature.properties.distance || 0),
+          duration: Math.round((feature.properties.time || 0) / 60),
+          geometry: Array.isArray(feature.geometry.coordinates[0][0]) 
+            ? feature.geometry.coordinates.flat() 
+            : feature.geometry.coordinates
+        }
+        console.log('Route result:', result)
+        return result
       }
+    } else {
+      const error = await response.text()
+      console.error('Geoapify error:', error)
     }
   } catch (error) {
     console.error('Route optimization failed:', error)

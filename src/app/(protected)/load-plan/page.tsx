@@ -374,6 +374,17 @@ export default function LoadPlanPage() {
 
       console.log('Found assigned orders:', assignedOrders?.length || 0)
 
+      // Get route data for all vehicles
+      const { data: vehicleRoutes } = await supabase
+        .from('vehicle_routes')
+        .select('vehicle_id, scheduled_date, distance, duration')
+        .in('scheduled_date', [today, tomorrow, dayAfter])
+
+      const routeMap = new Map()
+      vehicleRoutes?.forEach(route => {
+        routeMap.set(`${route.vehicle_id}-${route.scheduled_date}`, route)
+      })
+
       if (assignedOrders && assignedOrders.length > 0) {
         // Get all vehicles and drivers
         const [{ data: allVehicles }, { data: allDrivers }] = await Promise.all([
@@ -393,6 +404,8 @@ export default function LoadPlanPage() {
 
             if (vehicle) {
               if (!vehicleMap.has(vehicleId)) {
+                const routeKey = `${vehicleId}-${dateStr}`
+                const routeData = routeMap.get(routeKey)
                 vehicleMap.set(vehicleId, {
                   vehicle: vehicle,
                   assignedOrders: [],
@@ -400,7 +413,9 @@ export default function LoadPlanPage() {
                   capacity: parseInt(vehicle.load_capacity) || 0,
                   utilization: 0,
                   assignedDrivers: driver ? [driver] : [],
-                  destinationGroup: null
+                  destinationGroup: null,
+                  routeDistance: routeData?.distance ? Math.round(routeData.distance) : null,
+                  routeDuration: routeData?.duration ? Math.round(routeData.duration) : null
                 })
               }
 
@@ -1675,19 +1690,27 @@ export default function LoadPlanPage() {
             }
           }
           // Store route geometry for this vehicle
-          if ((assignment as any).routeGeometry) {
+          if ((assignment as any).routeGeometry || assignment.routeDistance) {
+            const geom = (assignment as any).routeGeometry
+            let routeCoords = null
+            
+            if (geom) {
+              // Handle different geometry formats
+              if (geom.coordinates) {
+                routeCoords = geom.coordinates
+              } else if (Array.isArray(geom)) {
+                routeCoords = geom
+              }
+            }
+            
             const { error: routeError } = await supabase
               .from('vehicle_routes')
               .upsert({
                 vehicle_id: assignment.vehicle.id,
                 scheduled_date: today,
-                route_geometry: (() => {
-                  const geom = (assignment as any).routeGeometry
-                  const coords = geom?.coordinates || geom
-                  return Array.isArray(coords?.[0]?.[0]) ? coords.flat() : coords
-                })(),
-                distance: assignment.routeDistance,
-                duration: assignment.routeDuration,
+                route_geometry: routeCoords,
+                distance: assignment.routeDistance || 0,
+                duration: assignment.routeDuration || 0,
                 updated_at: new Date().toISOString()
               }, {
                 onConflict: 'vehicle_id,scheduled_date'
@@ -1696,7 +1719,7 @@ export default function LoadPlanPage() {
             if (routeError) {
               console.error(`Failed to store route geometry for ${assignment.vehicle.registration_number}:`, routeError)
             } else {
-              console.log(`✓ Stored route geometry for ${assignment.vehicle.registration_number}`)
+              console.log(`✓ Stored route geometry for ${assignment.vehicle.registration_number}: ${routeCoords ? routeCoords.length : 0} points, ${assignment.routeDistance}km, ${assignment.routeDuration}min`)
             }
           }
           
@@ -3179,12 +3202,6 @@ export default function LoadPlanPage() {
                                           <span className="text-slate-500">Orders</span>
                                           <span className="font-medium text-slate-700">{assignment.assignedOrders.length}</span>
                                         </div>
-                                        {assignment.routeDuration && (
-                                          <div className="flex justify-between text-xs">
-                                            <span className="text-slate-500">Trip Time</span>
-                                            <span className="font-medium text-slate-700">{Math.floor(assignment.routeDuration / 60)}h {assignment.routeDuration % 60}m</span>
-                                          </div>
-                                        )}
                                         {assignment.routeDistance && (
                                           <div className="flex justify-between text-xs">
                                             <span className="text-slate-500">Distance</span>
@@ -3476,34 +3493,35 @@ export default function LoadPlanPage() {
                     let duration = 0
                     
                     if (validOrders.length > 0) {
-                      const geoapifyKey = process.env.NEXT_PUBLIC_GEOAPIFY_KEY
+                      const geoapifyKey = process.env.NEXT_PUBLIC_GEOAPIFY_API_KEY
                       if (geoapifyKey) {
-                        const locations = [
-                          { lat: DEPOT_LAT, lng: DEPOT_LON },
-                          ...validOrders.map(o => ({ lat: o.latitude, lng: o.longitude })),
-                          { lat: DEPOT_LAT, lng: DEPOT_LON }
-                        ]
+                        const waypoints = validOrders.map(o => ({ lat: o.latitude, lon: o.longitude }))
                         
                         const response = await fetch(
-                          `https://api.geoapify.com/v1/routeoptimization?apiKey=${geoapifyKey}`,
+                          `https://api.geoapify.com/v1/routeplanner?apiKey=${geoapifyKey}`,
                           {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
-                              mode: 'drive',
-                              locations: locations,
-                              roundtrip: true
+                              mode: 'truck',
+                              waypoints: [
+                                { lat: DEPOT_LAT, lon: DEPOT_LON },
+                                ...waypoints,
+                                { lat: DEPOT_LAT, lon: DEPOT_LON }
+                              ],
+                              details: ['route_details']
                             })
                           }
                         )
                         
                         if (response.ok) {
                           const data = await response.json()
-                          if (data.route) {
-                            optimizedOrders = data.route.slice(1, -1).map(idx => validOrders[idx - 1]).filter(Boolean)
-                            routeGeometry = { type: 'LineString', coordinates: data.geometry || [] }
-                            distance = Math.round((data.distance || 0) / 1000)
-                            duration = Math.round((data.time || 0) / 60)
+                          if (data.features?.[0]) {
+                            const feature = data.features[0]
+                            routeGeometry = feature.geometry.coordinates
+                            distance = Math.round((feature.properties.distance || 0) / 1000)
+                            duration = Math.round((feature.properties.time || 0) / 1000 / 60)
+                            optimizedOrders = validOrders
                           }
                         }
                       }
@@ -3514,9 +3532,9 @@ export default function LoadPlanPage() {
                       await supabase.from('vehicle_routes').upsert({
                         vehicle_id: selectedVehicleForDetails.vehicle.id,
                         scheduled_date: scheduledDate,
-                        route_geometry: routeGeometry.coordinates,
-                        distance,
-                        duration,
+                        route_geometry: routeGeometry,
+                        distance: distance * 1000,
+                        duration: duration * 60,
                         updated_at: new Date().toISOString()
                       }, { onConflict: 'vehicle_id,scheduled_date' })
                     }
@@ -3749,15 +3767,15 @@ export default function LoadPlanPage() {
                             {selectedVehicleForDetails.utilization.toFixed(0)}%
                           </span>
                         </div>
-                        {selectedVehicleForDetails.optimizedRoute && (
+                        {(selectedVehicleForDetails.routeDistance || selectedVehicleForDetails.optimizedRoute) && (
                           <>
                             <div className="flex justify-between">
                               <span>Route Distance:</span>
-                              <span className="font-medium">{(selectedVehicleForDetails.optimizedRoute.distance / 1000).toFixed(1)}km</span>
+                              <span className="font-medium">{selectedVehicleForDetails.routeDistance || Math.round((selectedVehicleForDetails.optimizedRoute?.distance || 0) / 1000)}km</span>
                             </div>
                             <div className="flex justify-between">
                               <span>Est. Duration:</span>
-                              <span className="font-medium">{Math.round(selectedVehicleForDetails.optimizedRoute.duration / 60)}min</span>
+                              <span className="font-medium">{selectedVehicleForDetails.routeDuration ? `${Math.floor(selectedVehicleForDetails.routeDuration / 60)}h ${selectedVehicleForDetails.routeDuration % 60}m` : `${Math.round((selectedVehicleForDetails.optimizedRoute?.duration || 0) / 60)}min`}</span>
                             </div>
                             <div className="flex justify-between">
                               <span>Route Status:</span>
