@@ -1,8 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  productionBrowserSourceMaps: false,
   experimental: {
     turbo: {
-      memoryLimit: 4096
+      memoryLimit: 1024
     }
   },
   eslint: {
