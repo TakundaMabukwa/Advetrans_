@@ -2333,12 +2333,15 @@ export default function LoadPlanPage() {
               code: error.code
             })
             console.error('Trip data that failed:', JSON.stringify(tripData, null, 2))
+            toast.error(`Failed to create trip for ${assignment.vehicle.registration_number}`)
           } else {
             createdTrips++
             if (isPaired) {
               console.log(`✓ Created trip ${tripId} for CN30435 towing Mission Trailer`)
+              toast.success(`Trip created for vehicle: CN30435 (towing Mission Trailer)`)
             } else {
               console.log(`✓ Created trip ${tripId} for ${assignment.vehicle.registration_number}`)
+              toast.success(`Trip created for vehicle: ${assignment.vehicle.registration_number}`)
             }
             
             // Update orders with trip_id and status 'in-trip' for ALL orders (including trailer's)
@@ -2360,8 +2363,12 @@ export default function LoadPlanPage() {
         }
       }
 
-      await fetchData()
-      await loadPendingOrders()
+      // Refresh state to show updated trip status
+      await Promise.all([
+        fetchData(),
+        loadPendingOrders(),
+        loadAssignmentsFromDatabase()
+      ])
       
       const allAssignedVehicles = todayAssignments.filter(a => a.assignedOrders && a.assignedOrders.length > 0)
       const vehiclesWithoutDrivers = allAssignedVehicles.filter(a => !a.assignedDrivers || a.assignedDrivers.length === 0).length

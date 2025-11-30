@@ -181,7 +181,7 @@ function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setN
     fetchAssignmentInfo()
   }, [trip.vehicleassignments, trip.vehicle_assignments])
 
-  const driverName = driverInfo ? (typeof driverInfo.surname === 'string' ? driverInfo.surname : String(driverInfo.surname || 'Unassigned')) : 'Unassigned'
+  const driverName = driverInfo ? `${driverInfo.first_name || ''} ${driverInfo.surname || ''}`.trim() || 'Unassigned' : 'Unassigned'
   const initials = driverName !== 'Unassigned' ? driverName.split(' ').map((s: string) => s[0]).slice(0,2).join('') : 'DR'
 
   if (loading) {
@@ -200,98 +200,94 @@ function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setN
 
   return (
     <div className={cn(
-      "w-[30%] rounded-xl p-4 bg-white/30 backdrop-blur-md border border-white/10 shadow-lg transition-transform duration-200 hover:scale-[1.02] hover:shadow-2xl",
+      "w-[30%] rounded-xl bg-white shadow-sm border border-slate-200 transition-transform duration-200 hover:scale-[1.01]",
       trip.unauthorized_stops_count > 0 && trip.status?.toLowerCase() !== 'delivered'
         ? isFlashing
           ? "ring-2 ring-red-400 animate-pulse"
-          : "ring-1 ring-red-300"
-        : "border-slate-200/30"
-    )}>
+          : "ring-0"
+        : "ring-0"
+    )} style={{ backgroundImage: "linear-gradient(180deg, rgba(255,255,255,1), rgba(249,250,251,1))" }}>
       {/* Top accent */}
-      <div className="h-1 w-full rounded-full bg-gradient-to-r from-blue-400 via-blue-400  to-indigo-500 mb-3 opacity-90" />
+      <div className="h-1 w-full rounded-t-xl bg-gradient-to-r from-blue-500 via-blue-400 to-blue-400 opacity-100" />
 
-      <div className="flex items-center gap-3 mb-3">
-        <div
-          className="w-10 h-10 rounded-lg flex items-center justify-center text-sm font-semibold text-white"
-          style={{
-            background: "linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%)",
-            boxShadow: "0 6px 18px rgba(59,130,246,0.18)"
-          }}
-        >
-          {initials}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-slate-900 truncate">{typeof driverInfo?.surname === 'string' ? driverInfo.surname : String(driverInfo?.surname || 'Unassigned')}</div>
-          <div className="text-xs text-slate-600">{driverInfo ? driverInfo.phone_number : 'No driver assigned'}</div>
-        </div>
-        <div className="flex-shrink-0">
-          <span className={cn(
-            "px-2 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide",
-            driverInfo?.available ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
-          )}>
-            {driverInfo?.available ? 'Available' : 'Unavailable'}
-          </span>
-        </div>
-      </div>
-
-      {/* Unauthorized Stop Alert */}
-      {trip.unauthorized_stops_count > 0 && trip.status?.toLowerCase() !== 'delivered' && (
-        <div className="mb-3 p-3 rounded-lg bg-red-50/70 border border-red-200/40 backdrop-blur-sm">
-          <div className="flex items-start gap-2">
-            <div className="flex-shrink-0">
-              <AlertTriangle className="w-4 h-4 text-red-600" />
+      <div className="p-3">
+        {/* Header Section */}
+        <div className="flex items-start justify-between mb-3">
+          <div className="flex items-center gap-3 flex-1">
+            <div className="w-9 h-9 bg-indigo-100 rounded-lg flex items-center justify-center border border-indigo-200">
+              <User className="w-4 h-4 text-indigo-700" />
             </div>
-            <div className="flex-1">
-              <div className="text-xs font-semibold text-red-800 uppercase">Unauthorized Stop Alert</div>
-              <div className="text-sm font-medium text-red-900">
-                {trip.unauthorized_stops_count} unauthorized stop{trip.unauthorized_stops_count > 1 ? 's' : ''} detected
+            <div className="min-w-0 flex-1">
+              <h3 className="font-semibold text-black text-sm truncate">{driverName}</h3>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <Phone className="w-3 h-3 text-slate-400" />
+                <span className="text-xs text-slate-600">{driverInfo ? driverInfo.phone_number : 'No contact'}</span>
               </div>
-              {trip.route_points && trip.route_points.length > 0 && (
-                <div className="text-xs text-red-700 mt-1">
-                  Last: {(() => {
-                    const last = trip.route_points[trip.route_points.length - 1]
-                    return last ? `${last.lat?.toFixed(4)}, ${last.lng?.toFixed(4)}` : 'Unknown'
-                  })()}
-                </div>
-              )}
             </div>
           </div>
-        </div>
-      )}
-
-
-
-      <div className="mb-3 p-3 rounded-lg bg-white/20 border border-white/5">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-1.5 h-1.5 bg-slate-500 rounded-full" />
-          <span className="text-xs font-medium text-slate-700 uppercase">Vehicle</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-slate-900 truncate">
-            {vehicleLocation?.plate || vehicleInfo?.registration_number || assignment?.vehicle?.name || 'Not assigned'}
+          <span className={cn(
+            "px-2 py-1 rounded-full text-xs font-semibold uppercase tracking-wide flex-shrink-0",
+            driverInfo?.available ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-800'
+          )}>
+            {driverInfo?.available ? 'Active' : 'Busy'}
           </span>
-          <span className="text-xs text-slate-500">{vehicleLocation ? `Speed: ${vehicleLocation.speed} km/h` : ''}</span>
         </div>
-        {vehicleLocation && (
-          <div className="mt-2 text-xs text-slate-600">
-            {vehicleLocation.address}
+
+        {/* Alert Banner */}
+        {trip.unauthorized_stops_count > 0 && trip.status?.toLowerCase() !== 'delivered' && (
+          <div className="rounded-md p-3 mb-3 text-sm bg-red-50 border border-red-200">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <div className="text-sm font-medium text-red-700 mb-1">UNAUTHORIZED STOP</div>
+                <div className="text-sm text-red-600">
+                  {trip.unauthorized_stops_count} unauthorized stop{trip.unauthorized_stops_count > 1 ? 's' : ''} detected
+                </div>
+                {trip.route_points && trip.route_points.length > 0 && (
+                  <div className="text-xs text-red-500 mt-1">
+                    {(() => {
+                      const last = trip.route_points[trip.route_points.length - 1]
+                      return last ? `${last.lat?.toFixed(4)}, ${last.lng?.toFixed(4)}` : 'Unknown'
+                    })()}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
-      </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        <Button
-          size="sm"
-          variant="link"
-          className="h-8 text-xs border"
-          onClick={async () => {
+        {/* Vehicle Info */}
+        <div className="bg-white rounded-lg p-2 border border-slate-100 mb-3">
+          <div className="flex items-center gap-1 mb-1">
+            <Truck className="w-3 h-3 text-slate-500" />
+            <span className="text-xs font-medium text-gray-700 uppercase">Vehicle</span>
+          </div>
+          <p className="text-sm font-semibold text-black truncate">
+            {vehicleLocation?.plate || vehicleInfo?.registration_number || assignment?.vehicle?.name || 'Not assigned'}
+          </p>
+        </div>
+
+        {/* Current Location */}
+        {vehicleLocation && (
+          <div className="bg-white rounded-lg p-2 border border-slate-100 mb-3">
+            <div className="flex items-center gap-1 mb-1">
+              <MapPin className="w-3 h-3 text-slate-500" />
+              <span className="text-xs font-medium text-gray-700 uppercase">Location</span>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">{vehicleLocation.address}</p>
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            size="default"
+            variant="outline"
+            className="h-10 text-sm font-medium"
+            onClick={async () => {
             const supabase = createClient();
-            
-            // Use route_points from trip data (already in [lng, lat] format)
             const routePoints = trip.route_points || [];
             const routeCoords = routePoints.length > 0 ? routePoints : [];
-            
-            // Use stop_points from trip data with sequence numbers
             const stopPointsData = trip.stop_points || [];
             const stopPoints = stopPointsData
               .sort((a: any, b: any) => (a.sequence || 0) - (b.sequence || 0))
@@ -300,14 +296,9 @@ function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setN
                 coordinates: [point.lng, point.lat],
                 sequence: point.sequence || index + 1
               }));
-
-            // Fetch high risk zones
             let highRiskZones = [];
             try {
-              const { data: riskZones } = await supabase
-                .from('high_risk')
-                .select('id, name, coordinates');
-              
+              const { data: riskZones } = await supabase.from('high_risk').select('id, name, coordinates');
               highRiskZones = (riskZones || []).map(zone => {
                 if (zone.coordinates) {
                   const coordPairs = zone.coordinates.split(' ')
@@ -317,12 +308,8 @@ function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setN
                       return [parseFloat(lng), parseFloat(lat)];
                     })
                     .filter(pair => !isNaN(pair[0]) && !isNaN(pair[1]));
-
                   if (coordPairs.length > 2) {
-                    return {
-                      name: zone.name,
-                      polygon: coordPairs
-                    };
+                    return { name: zone.name, polygon: coordPairs };
                   }
                 }
                 return null;
@@ -330,66 +317,63 @@ function DriverCard({ trip, userRole, handleViewMap, setCurrentTripForNote, setN
             } catch (error) {
               console.error('Error fetching high risk zones:', error);
             }
-
             handleViewMap(driverName, { ...trip, routeCoords, stopPoints, highRiskZones });
-          }}
-        >
-          <MapPin className="w-3 h-3" /> Track
-        </Button>
-
-        <SecureButton
-          page="dashboard"
-          action="edit"
-          size="sm"
-          variant="link"
-          className="h-8 text-xs border"
-          onClick={() => {
-            setCurrentTripForNote(trip);
-            setNoteText(trip.status_notes || '');
-            setNoteOpen(true);
-          }}
-        >
-          <FileText className="w-3 h-3" /> Note
-        </SecureButton>
-
-        <SecureButton
-          page="dashboard"
-          action="edit"
-          size="sm"
-          variant="link"
-          className="h-8 text-xs border"
-          onClick={async () => {
-            const supabase = createClient();
-            const { data: drivers } = await supabase.from('drivers').select('*');
-            setAvailableDrivers(drivers || []);
-            setCurrentTripForChange(trip);
-            setChangeDriverOpen(true);
-          }}
-        >
-          <User className="w-3 h-3" /> Change
-        </SecureButton>
-
-        <SecureButton
-          page="dashboard"
-          action="delete"
-          size="sm"
-          variant="destructive"
-          className="h-8 text-xs border"
-          onClick={async () => {
-            if (!confirm('Are you sure you want to delete this trip?')) return;
-            try {
+            }}
+          >
+            <MapPin className="w-4 h-4 mr-1.5" /> Track
+          </Button>
+          <SecureButton
+            page="dashboard"
+            action="edit"
+            size="default"
+            variant="outline"
+            className="h-10 text-sm font-medium"
+            onClick={() => {
+              setCurrentTripForNote(trip);
+              setNoteText(trip.status_notes || '');
+              setNoteOpen(true);
+            }}
+          >
+            <FileText className="w-4 h-4 mr-1.5" /> Note
+          </SecureButton>
+          <SecureButton
+            page="dashboard"
+            action="edit"
+            size="default"
+            variant="outline"
+            className="h-10 text-sm font-medium"
+            onClick={async () => {
               const supabase = createClient();
-              const { error } = await supabase.from('trips').delete().eq('id', trip.id);
-              if (error) throw error;
-              alert('Trip deleted successfully');
-            } catch (err) {
-              console.error('Failed to delete trip:', err);
-              alert('Failed to delete trip');
-            }
-          }}
-        >
-          <X className="w-3 h-3" /> Cancel
-        </SecureButton>
+              const { data: drivers } = await supabase.from('drivers').select('*');
+              setAvailableDrivers(drivers || []);
+              setCurrentTripForChange(trip);
+              setChangeDriverOpen(true);
+            }}
+          >
+            <User className="w-4 h-4 mr-1.5" /> Change
+          </SecureButton>
+          <SecureButton
+            page="dashboard"
+            action="delete"
+            size="default"
+            variant="destructive"
+            className="h-10 text-sm font-medium"
+            onClick={async () => {
+              if (!confirm('Are you sure you want to delete this trip?')) return;
+              try {
+                const supabase = createClient();
+                const { error } = await supabase.from('trips').delete().eq('id', trip.id);
+                if (error) throw error;
+                alert('Trip deleted successfully');
+              } catch (err) {
+                console.error('Failed to delete trip:', err);
+                alert('Failed to delete trip');
+              }
+            }}
+          >
+            <X className="w-4 h-4 mr-1.5" /> Cancel
+          </SecureButton>
+        </div>
       </div>
     </div>
   )
@@ -474,10 +458,9 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
 
   // Main workflow statuses for progress tracking
   const WORKFLOW_STATUSES = [
-    { label: "In queue", value: "pending" },
-    { label: "Leaving depot", value: "accepted" },
-    { label: "Leaving Fuchs", value: "arrived-at-loading" },
+    { label: "In-Queue", value: "pending" },
     { label: "Loading", value: "staging-area" },
+    { label: "Leaving", value: "accepted" },
     { label: "En-route to delivery", value: "loading" },
     { label: "On-route to Fuchs", value: "on-trip" },
     { label: "Unloading", value: "offloading" },
@@ -686,7 +669,7 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
               ['completed', 'depo', 'handover'].includes(trip.status?.toLowerCase()) ? 'bg-lime-100 text-lime-800' :
               'bg-slate-100 text-slate-800'
               )}>
-              {trip.status || 'Unknown'}
+              {WORKFLOW_STATUSES.find(s => s.value === trip.status?.toLowerCase())?.label || trip.status || 'Unknown'}
               </span>
               </div>
               </div>
@@ -763,7 +746,7 @@ function RoutingSection({ userRole, handleViewMap, setCurrentTripForNote, setNot
               </div>
               ))}
               </div>
-              <div className="absolute top-3 left-3 right-3 h-1 bg-slate-100 -z-0 rounded">
+              <div className="absolute top-[13px] left-0 right-0 h-1 bg-slate-100 -z-0 rounded mx-3">
               <div 
               className="h-full rounded bg-gradient-to-r from-blue-500 via-sky-500 to-blue-400 transition-all duration-500 ease-out"
               style={{ width: `${progress}%` }}

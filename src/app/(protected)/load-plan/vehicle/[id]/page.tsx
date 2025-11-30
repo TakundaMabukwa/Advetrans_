@@ -170,6 +170,17 @@ export default function VehicleRoutePlanningPage() {
     if (!draggedItem) return
 
     if (draggedItem.source === 'unassigned') {
+      // Check capacity before adding
+      const orderWeight = draggedItem.order.total_weight || 0
+      const currentWeight = assignedOrders.reduce((sum, o) => sum + (o.total_weight || 0), 0)
+      const remainingCapacity = capacity - currentWeight
+      
+      if (orderWeight > remainingCapacity) {
+        toast.error(`Cannot add order: ${Math.round(orderWeight)}kg exceeds remaining capacity of ${Math.round(remainingCapacity)}kg`)
+        setDraggedItem(null)
+        return
+      }
+      
       const newAssigned = [...assignedOrders, draggedItem.order]
       setUnassignedOrders(prev => prev.filter(o => o.id !== draggedItem.order.id))
       setAssignedOrders(newAssigned)
@@ -317,118 +328,110 @@ export default function VehicleRoutePlanningPage() {
           </Button>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-6">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-                <Truck className="h-5 w-5 text-blue-600" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs text-slate-500 mb-0.5">Vehicle</p>
-                <div className="flex items-center gap-2">
-                  <p className="text-lg font-semibold text-slate-900 truncate">{vehicle.registration_number}</p>
-                  {assignedOrders.some(o => o.status === 'in-trip') && (
-                    <span className="px-2 py-0.5 bg-blue-600 text-white rounded text-xs font-bold whitespace-nowrap">
-                      ON TRIP
-                    </span>
-                  )}
+        <div className="space-y-4">
+          <div className="bg-gradient-to-r from-slate-700 to-slate-800 rounded-lg px-5 py-4 shadow-lg">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-white/10 backdrop-blur-sm flex items-center justify-center border border-white/20">
+                  <Truck className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-bold text-white">{vehicle.registration_number}</h2>
+                    {assignedOrders.some(o => o.status === 'in-trip') && (
+                      <span className="px-2.5 py-0.5 bg-blue-500 text-white rounded-md text-xs font-semibold shadow-sm">
+                        ON TRIP
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-300 mt-0.5">{vehicle.description || 'Route Planning'}</p>
                 </div>
               </div>
+              <div className="flex items-center gap-2">
+                <div className="relative min-w-[200px]">
+                  <select
+                    value={selectedDriver}
+                    onChange={(e) => setSelectedDriver(e.target.value)}
+                    className="w-full pl-9 pr-8 py-2.5 text-sm font-semibold border-2 border-white/30 rounded-lg bg-white/15 backdrop-blur-sm appearance-none cursor-pointer transition-all hover:bg-white/25 focus:outline-none focus:ring-2 focus:ring-white/40 focus:border-white/40 text-white"
+                  >
+                    <option value="" className="text-slate-900 bg-white">{assignedDriverName || 'Select driver...'}</option>
+                    {drivers.map(driver => (
+                      <option key={driver.id} value={driver.id} className="text-slate-900 bg-white">
+                        {driver.first_name} {driver.surname}
+                      </option>
+                    ))}
+                  </select>
+                  <User className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-white/80 pointer-events-none" />
+                  <svg className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/80 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+                <Button
+                  onClick={handleAssignDriver}
+                  disabled={!selectedDriver || assignedOrders.length === 0}
+                  className="h-[42px] px-5 text-sm font-bold bg-white hover:bg-slate-50 disabled:bg-white/40 disabled:cursor-not-allowed transition-colors shadow-md"
+                  style={{ color: selectedDriver && assignedOrders.length > 0 ? '#0f172a' : '#64748b' }}
+                >
+                  {assignedDriverName ? 'Change' : 'Assign'}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+            <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-2.5 mb-2">
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-sm">
+                  <Gauge className="h-5 w-5 text-white" />
+                </div>
+                <p className="text-xs font-semibold text-slate-600">Utilization</p>
+              </div>
+              <p className="text-2xl font-bold text-slate-900 ml-11">{utilization.toFixed(0)}%</p>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
-                <Gauge className="h-5 w-5 text-purple-600" />
+            <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-2.5 mb-2">
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center shadow-sm">
+                  <Weight className="h-5 w-5 text-white" />
+                </div>
+                <p className="text-xs font-semibold text-slate-600">Weight</p>
               </div>
-              <div className="min-w-0">
-                <p className="text-xs text-slate-500 mb-0.5">Utilization</p>
-                <p className="text-lg font-semibold text-slate-900">{utilization.toFixed(0)}%</p>
-              </div>
+              <p className="text-2xl font-bold text-slate-900 ml-11">{Math.round(totalWeight)}<span className="text-sm text-slate-500 font-normal">/{capacity}kg</span></p>
             </div>
 
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-orange-50 flex items-center justify-center flex-shrink-0">
-                <Weight className="h-5 w-5 text-orange-600" />
+            <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+              <div className="flex items-center gap-2.5 mb-2">
+                <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-500 to-green-600 flex items-center justify-center shadow-sm">
+                  <MapPin className="h-5 w-5 text-white" />
+                </div>
+                <p className="text-xs font-semibold text-slate-600">Stops</p>
               </div>
-              <div className="min-w-0">
-                <p className="text-xs text-slate-500 mb-0.5">Weight</p>
-                <p className="text-lg font-semibold text-slate-900">{Math.round(totalWeight)}<span className="text-sm text-slate-400">/{capacity}kg</span></p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-emerald-50 flex items-center justify-center flex-shrink-0">
-                <MapPin className="h-5 w-5 text-emerald-600" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-xs text-slate-500 mb-0.5">Stops</p>
-                <p className="text-lg font-semibold text-slate-900">{assignedOrders.length}</p>
-              </div>
+              <p className="text-2xl font-bold text-slate-900 ml-11">{assignedOrders.length}</p>
             </div>
 
             {routeDistance ? (
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-cyan-50 flex items-center justify-center flex-shrink-0">
-                  <Navigation className="h-5 w-5 text-cyan-600" />
+              <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-center gap-2.5 mb-2">
+                  <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shadow-sm">
+                    <Navigation className="h-5 w-5 text-white" />
+                  </div>
+                  <p className="text-xs font-semibold text-slate-600">Distance</p>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-xs text-slate-500 mb-0.5">Distance</p>
-                  <p className="text-lg font-semibold text-slate-900">{routeDistance} km</p>
-                </div>
+                <p className="text-2xl font-bold text-slate-900 ml-11">{routeDistance}<span className="text-sm text-slate-500 font-normal">km</span></p>
               </div>
             ) : null}
 
             {routeDuration ? (
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-pink-50 flex items-center justify-center flex-shrink-0">
-                  <Clock className="h-5 w-5 text-pink-600" />
+              <div className="bg-white rounded-lg p-4 border border-slate-200 shadow-sm hover:shadow-md transition-shadow">
+                <div className="flex items-center gap-2.5 mb-2">
+                  <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-pink-500 to-rose-600 flex items-center justify-center shadow-sm">
+                    <Clock className="h-5 w-5 text-white" />
+                  </div>
+                  <p className="text-xs font-semibold text-slate-600">Duration</p>
                 </div>
-                <div className="min-w-0">
-                  <p className="text-xs text-slate-500 mb-0.5">Duration</p>
-                  <p className="text-lg font-semibold text-slate-900">{Math.floor(routeDuration / 60)}h {routeDuration % 60}m</p>
-                </div>
+                <p className="text-2xl font-bold text-slate-900 ml-11">{Math.floor(routeDuration / 60)}h {routeDuration % 60}m</p>
               </div>
             ) : null}
-
-            <div className="flex items-center gap-3 col-span-2 md:col-span-1">
-              <div className="w-10 h-10 rounded-lg bg-indigo-50 flex items-center justify-center flex-shrink-0">
-                <User className="h-5 w-5 text-indigo-600" />
-              </div>
-              <div className="min-w-0 flex-1">
-                {assignedDriverName ? (
-                  <>
-                    <p className="text-xs text-slate-500 mb-0.5">Driver</p>
-                    <p className="text-lg font-semibold text-slate-900 truncate">{assignedDriverName}</p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-xs text-slate-500 mb-1">Assign Driver</p>
-                    <div className="flex gap-2">
-                      <select
-                        value={selectedDriver}
-                        onChange={(e) => setSelectedDriver(e.target.value)}
-                        className="flex-1 px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                      >
-                        <option value="">Select...</option>
-                        {drivers.map(driver => (
-                          <option key={driver.id} value={driver.id}>
-                            {driver.first_name} {driver.surname}
-                          </option>
-                        ))}
-                      </select>
-                      <Button
-                        onClick={handleAssignDriver}
-                        disabled={!selectedDriver || assignedOrders.length === 0}
-                        size="sm"
-                        className="h-8 px-3 text-xs bg-indigo-600 hover:bg-indigo-700 text-white disabled:bg-slate-300"
-                      >
-                        Assign
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
           </div>
         </div>
 
@@ -461,7 +464,7 @@ export default function VehicleRoutePlanningPage() {
         <div className="grid grid-cols-2 gap-6">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between mb-3">
                 <CardTitle className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                   <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center">
                     <CheckCircle className="h-4 w-4 text-emerald-600" />
@@ -469,6 +472,26 @@ export default function VehicleRoutePlanningPage() {
                   Loaded Orders
                   <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-xs font-medium">{assignedOrders.length}</span>
                 </CardTitle>
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-600 font-medium">{Math.round(totalWeight)}kg / {capacity}kg</span>
+                  <span className={`font-semibold ${
+                    utilization > 95 ? 'text-red-600' :
+                    utilization > 85 ? 'text-amber-600' :
+                    'text-emerald-600'
+                  }`}>{utilization.toFixed(0)}%</span>
+                </div>
+                <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                  <div
+                    className={`h-2 rounded-full transition-all ${
+                      utilization > 95 ? 'bg-red-500' :
+                      utilization > 85 ? 'bg-amber-500' :
+                      'bg-emerald-500'
+                    }`}
+                    style={{ width: `${Math.min(utilization, 100)}%` }}
+                  ></div>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
