@@ -6,9 +6,11 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
+  productionBrowserSourceMaps: false,
   serverExternalPackages: ['mapbox-gl'],
   experimental: {
     webpackMemoryOptimizations: true,
+    optimizePackageImports: ['lucide-react', '@radix-ui/react-icons'],
   },
   webpack: (config, { isServer }) => {
     config.resolve.alias = {
@@ -16,17 +18,13 @@ const nextConfig = {
       'mapbox-gl': 'mapbox-gl/dist/mapbox-gl.js',
     };
     
-    // Memory optimization
+    config.cache = false;
+    config.parallelism = 1;
+    
     config.optimization = {
       ...config.optimization,
-      minimize: true,
-      splitChunks: {
-        chunks: 'all',
-        cacheGroups: {
-          default: false,
-          vendors: false,
-        },
-      },
+      moduleIds: 'deterministic',
+      splitChunks: false,
     };
     
     return config;
