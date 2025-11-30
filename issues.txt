@@ -1,0 +1,191 @@
+4. Technician is not added in authitication just in table only
+5. Need to change the RSL for tables Updates for all tables to USING (created_by = auth.uid())
+6. Havent been able to request breakdown and dispatch it functionality
+8. Error so when new job created the old one is left with nothing as in the prev v id and driver id so i want to store it in both old and new
+10. Store images as the url link to work on web storage bucket also in mobile app
+11. Add client side and also database to be changed to allow different companies
+
+
+Mobile App
+- Fix qoutation to get the job allocation
+- Tell if it internal technician or external
+- Alert response on when completing job
+- additional notes to be added as part of the job_assignment
+- edit their job stuff to be able to add attachments for the job
+
+He want to make the Vehicle reg to be next to job id or qoute id
+in the mobile app ability to auto tell the time take to got to the job.
+
+
+qoutation for all user fleet manager also need to be fixed workshop also
+Add technician information on the qoute
+- need to make notes to be array so can have history not to remove the old one
++many more
+
+need more dashboards and conditionally render on the main one
+
+and other pages that have same thing just change it abit
+
+Quick Q: 
+Should i be reg admin of company or fleet manager and they have prev to add users to their system or how 
+internal workshop mech, no we need to tow 
+when tow send 
+
+
+
+
+fleet manager : {
+   email: davidmanager@lg.co.za
+   0648629542
+   password12
+}
+
+call center : Lorren Gune{
+    lorrgune@lg.co.za
+    0762459594
+}
+
+
+technicians:{
+    0738618922
+    email: zamitech@lg.co.za
+    password12
+}
+
+driver: {
+    0893452367
+    driverxolani@lg.co.za
+    passsword12
+}
+
+
+
+since rendering same component for call and fleet need to change that now
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+03 August 2025 changes
+
+duplicate the Breakdown system to be called Management Maintanance(
+
+dashboard =>
+remove the date on dashboard (last updated at)
+ quick report( we changing to number of tows, remove cost eff, weekly trend) breakdown and quick for open jobs
+redirect to the list of jobs that are there for (Quick Summary open and close date for the jobs(regno,jobnumb,status,dateopend,currectstatus date,
+add view btn to view full details (/jobs/51) actions(performed by fleet manager(approve,decline, request inspection))
+)))
+=> for these new system we remove qoute management and we run it on job statuses.
+=> Fleet manager will always have ability and action (approved, decline or request other inspection)
+
+
+performance metrix => prefer to job types(electrical), number of jobs, avg costing, 
+
+statuses(
+1. Awaiting Workshop acceptance(Once open job card and workshop allocated, workshop provide update to when should come)(booking vehicle)
+2. Workshop accepted(VEHICLE TObe delivered)(once workshop accepted job, once it there must confirm it there and confirm goes to 3.)
+3. Vehicles at workshop(pending qoutation(Load qoutation, once loaded if over spec threehold request inspection, under must go to pendng approval which wll be done fleet manager))
+4. Qoute loaded(1.pENDING INSEPCTION
+    (we need to have app for inspector validate the job(using the reg number(checkblock next to items to checkout,
+     and notes))), 2.Pending approval)
+5. Approved
+6. Declined,
+7. Completed
+8. Invoiced
+9.Paid
+)
+
+
+mobile(
+ inspector(inspection for job(see the qoute and confirm based on the qoute and attach pictures and note as recommendation) 
+ and 
+ workshop(
+    view all the pictures, and see if the part they loaded is correct and update photos.
+    location setting for both workshop and job.
+ )
+ 
+ )
+
+be able to have accept or not
+dashboard 0-3 days 4-7 and 8++
+old than 3 must be flashed and more than 8 highligheted red
+)
+
+backend for the systems
+value and job type mandatory as critirea,
+booking system to book inspection when it will be done (to his quee based on location)
+
+
+mandate{
+    for fleet manager
+    (all job types will be displayed and they need to select which job type then go to what the value needed for this job types)
+    => to find workshop we add on bbee schedule (gander)
+    => VAT (YES OR NO())
+    => Auth limit(all users in systems(can view all(username and surname) and must to value of what auth or limit )){
+        have job > 3k and the auth limit is also under 3k it will go to the user it will depend on value of the jobs. 
+    }
+    if they havent got job it gives them the.
+    enter vehicle location to determine the job
+}
+
+
+Workshop side (
+    call center now is workshop
+
+    can only see jobs allocated to them, functions is accepting, rejecting(decline)
+    add date for status(backend) and date for picking when to bring the vehicle,
+    load qoutations(parts(format:{
+        Quantity, partno, part descrp, cost exc vat
+    } and labour{
+        no_hours, labour_rate(from workshop registration)
+    })),
+    upload supplies qoutations of org parts supplies and attach photos,
+
+
+    Inspector:after inspection{
+     WORKSHOP can edit qoute and resubmit it for approval to fleetmanager,
+        once approved must be able to upload or generate invoice from our system
+        invoice format(which will auto generate) and their supplies invoices to be uploaded
+        the supplier invoice and qoute only for inspector not the fleetmanager
+    }   
+
+    Workshop functionality.
+    workshop admin, Add all mechanics(Mech must all trade test certification on stystem), and learners
+    Page for learner for training(courses needed to complete by learners)
+    Mech to add additional information
+)
+
+
+Call Center functionaly{
+    load qoute on behalf of workshops cant approve or anything, 
+    neg or update prices on qoute,
+    request inspection,
+    ability to upload invoices against workshops.
+    Open up jobs.
+    We need the driver to log breakdown(request for services(if any due or repair then 
+    fleet manager will see this and that when start look for workshop))
+}
+
+
+
+Company logs(
+    start trip it must be indicated if business and then once stop it will record all the kms
+)
+
+
+
+old system{
+    have create job and the should be able to create breakdown
+}

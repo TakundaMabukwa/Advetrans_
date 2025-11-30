@@ -1,0 +1,1481 @@
+{
+  "totalDrivers": 82,
+  "drivers": [
+    {
+      "driverName": "SICELIMPILO WILFRED KHANYILE",
+      "plate": "JY54WJGP M",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "MTHUTHUZELI SAMUEL LEISA",
+      "plate": "HW22SNGP",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "ZAMOKWAKHE MAKHAZA",
+      "plate": "JK68DMGP M",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "JAN MKGAE",
+      "plate": "KB24WWGP",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "BUKHOSI KINGDOM NTOYI",
+      "plate": "HY74XFGP",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "BHEKABENGUNI SIMON KWESWA",
+      "plate": "JK68FMGP",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "KHAYELIHLE ANDILE ZULU",
+      "plate": "HW67VCGP M",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "MPUMZI PERE",
+      "plate": "HY87GHGP",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "IKAGENG MALEBANA",
+      "plate": "HS30WSGP",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "Vincent Mzikawukhule Mhlambo",
+      "plate": "MK88LKGP",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "LEBOHANG VINCENT THEDE",
+      "plate": "JL64ZGGP",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "Bongani Arson Nkuna",
+      "plate": "JV26SNGP",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "HLULANI WITNESS VUKEYA",
+      "plate": "HY87GLGP",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "NTLANTLA  MADANGALA",
+      "plate": "JF74XHGP M",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "Lesiba Kaizer Molele",
+      "plate": "HY87GWGP M",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "NCEDILE MQOLO",
+      "plate": "JK68DFGP",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "TSHINGELO CECIL MAKHUMISANE",
+      "plate": "KB24XHGP",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "Jabulani Amos Mahlangu",
+      "plate": "JY54XGGP",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "TANDISWE KWITSHANE",
+      "plate": "HW67VSGP",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "LULAMILE MBANGI",
+      "plate": "JY54WZGP",
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "BANDILE LOREN MBEWANA",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Mfanufikile Simon Ncakayi",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "SBONGISENI  KOLWANA",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "SITHEMBISO SOKHELA",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "MARK BUYS",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "AMOS NTSAKO MSIMEKI",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "MPUMEZO BERRINGTON NOHOLZA",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "ANDRIES HABOFANOE LESAWANA",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Sandile Innocent Mbatha",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "LUNGISANI ANDREAS  DIDI",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Bhefika Ernest Tembe",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "MMAFU JOHANNES NGUBENI",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Senzo Wiseman Ngcobo",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Mduduzi Samson MTSHALI",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Mndeni Enock Mdlalose",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "REUBEN LINDA ZWANE",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Lungisani Penuel Mkwanazi",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Richard Sikhumbuzo Simelane",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "andile mabece",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "msanenkosi musa mbatha",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "THABANG MOKOENA",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Sandile Desmond Mchunu",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Nkosinathi Zulu",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "SAKHILE CEDRIC SIKAYI",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "NKOSINATHI THIWANI",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Amos Oupa Malinga",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "SFISO CLARENCE DLAMINI",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "LUZUKO NTSVAM",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "WANDILE ZINDLOVU",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "KHIPHIZWI DERRICK MAHAYE",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Sonwabile Maqolo",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "HLENGANI LUCKY GABENI",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Sakhile Blessed Ndlovu",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "MAFEMANI CHESTER  MATHYE",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "LINDEN JOUESTON FRANSE",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Bheki Dumisani Matonsi",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "MDUDUZI CARLOS MILANZI",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "SIYABONGA MTOLO",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Thobile Meva",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Stephen Mmanoko Maubane",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Nchapa Petrus Ntsilo",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "MOSHE THEBE",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Sibolekwa Joseph Dube",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Thulani Alex Dlamini",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Maphadime Charles Tsebetsebe",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Bhekumndeni Xolani Buthelez",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "TSWALENDI PRINCE MASHABELA",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "khethukuthula Godfer Xulu",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Thabo Algrin Sithole",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "Lungani Xaba",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "SAMUEL SAM NHLAPHO",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 95,
+        "insuranceRiskScore": 13,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 1,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 1
+      }
+    },
+    {
+      "driverName": "NHLANHLA NGUBO",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "NELISILE NCOKWANE",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "Ryan Thabiso Mokone",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "Motlokoe Simon Matshela",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "THOKOZANI MCHUNU",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "Tobela Mbekeli",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "Bongani Magamakhe Mkhize",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "Potego Comfort Chiloane",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "DAVID SBUSISO CHOBA",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "MDUDUZI ERIC NZALA",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    },
+    {
+      "driverName": "THOBANI STANLEY MANYONI",
+      "plate": null,
+      "currentPoints": 100,
+      "performanceLevel": "Gold",
+      "scores": {
+        "performanceRating": 100,
+        "insuranceRiskScore": 0,
+        "riskCategory": "Low Risk",
+        "insuranceMultiplier": 1
+      },
+      "violations": {
+        "total": 0,
+        "speed": 0,
+        "harshBraking": 0,
+        "nightDriving": 0
+      }
+    }
+  ]
+}

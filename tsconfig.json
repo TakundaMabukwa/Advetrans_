@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "src/app/(protected)/layout.tsx", "src/components/map/display-map.jsx", "src/components/layout/dialog-screen.jsx", "src/app/(protected)/fleetManager/routes/page.jsx", "src/components/forms/client-form.jsx", "src/app/(protected)/fleetManager/trips/page.jsx", "src/components/detail-pages/trip-details.jsx", "src/app/(protected)/fleetManager/trips/[id]/page.jsx", "src/lib/fuel-fill-detector.ts"],
+  "exclude": ["node_modules"]
+}
