@@ -190,6 +190,13 @@ export default function VehicleRoutePlanningPage() {
     if (!draggedItem) return
 
     if (draggedItem.source === 'assigned') {
+      // Check if order is on a trip
+      if (draggedItem.order.status === 'in-trip') {
+        toast.error('Cannot unassign orders that are on a trip. Complete or cancel the trip first.')
+        setDraggedItem(null)
+        return
+      }
+
       const newAssigned = assignedOrders.filter(o => o.id !== draggedItem.order.id)
       setAssignedOrders(newAssigned)
       setUnassignedOrders(prev => [...prev, draggedItem.order])
@@ -229,7 +236,15 @@ export default function VehicleRoutePlanningPage() {
           .eq('id', optimizedOrders[idx].id)
       }
 
-      for (const order of unassignedOrders) {
+      // Only unassign orders that are NOT on a trip
+      const ordersToUnassign = unassignedOrders.filter(o => o.status !== 'in-trip')
+      const ordersOnTrip = unassignedOrders.filter(o => o.status === 'in-trip')
+      
+      if (ordersOnTrip.length > 0) {
+        toast.error(`${ordersOnTrip.length} order(s) cannot be unassigned - they are on a trip`)
+      }
+
+      for (const order of ordersToUnassign) {
         await supabase
           .from('pending_orders')
           .update({ 
@@ -310,7 +325,14 @@ export default function VehicleRoutePlanningPage() {
               </div>
               <div className="min-w-0">
                 <p className="text-xs text-slate-500 mb-0.5">Vehicle</p>
-                <p className="text-lg font-semibold text-slate-900 truncate">{vehicle.registration_number}</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-lg font-semibold text-slate-900 truncate">{vehicle.registration_number}</p>
+                  {assignedOrders.some(o => o.status === 'in-trip') && (
+                    <span className="px-2 py-0.5 bg-blue-600 text-white rounded text-xs font-bold whitespace-nowrap">
+                      ON TRIP
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -458,9 +480,20 @@ export default function VehicleRoutePlanningPage() {
                 {assignedOrders.map((order, idx) => (
                   <div
                     key={order.id}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, order, 'assigned')}
-                    className="group relative bg-white border border-slate-200 rounded-lg hover:shadow-md hover:border-slate-300 transition-all cursor-move"
+                    draggable={order.status !== 'in-trip'}
+                    onDragStart={(e) => {
+                      if (order.status === 'in-trip') {
+                        e.preventDefault()
+                        toast.error('Cannot unassign orders that are on a trip')
+                        return
+                      }
+                      handleDragStart(e, order, 'assigned')
+                    }}
+                    className={`group relative bg-white border rounded-lg transition-all ${
+                      order.status === 'in-trip' 
+                        ? 'border-blue-300 bg-blue-50 cursor-not-allowed' 
+                        : 'border-slate-200 hover:shadow-md hover:border-slate-300 cursor-move'
+                    }`}
                   >
                     <div className="flex items-center gap-3 p-3">
                       <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center text-white text-xs font-bold shadow-sm">
@@ -472,16 +505,23 @@ export default function VehicleRoutePlanningPage() {
                           <span className="flex-shrink-0 px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded text-xs font-medium">
                             {Math.round(order.total_weight)}kg
                           </span>
+                          {order.status === 'in-trip' && (
+                            <span className="flex-shrink-0 px-1.5 py-0.5 bg-blue-600 text-white rounded text-xs font-bold">
+                              ON TRIP
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-slate-500 truncate">{order.location}</p>
                       </div>
-                      <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <div className="flex flex-col gap-0.5">
-                          <div className="w-1 h-1 bg-slate-400 rounded-full"></div>
-                          <div className="w-1 h-1 bg-slate-400 rounded-full"></div>
-                          <div className="w-1 h-1 bg-slate-400 rounded-full"></div>
+                      {order.status !== 'in-trip' && (
+                        <div className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="flex flex-col gap-0.5">
+                            <div className="w-1 h-1 bg-slate-400 rounded-full"></div>
+                            <div className="w-1 h-1 bg-slate-400 rounded-full"></div>
+                            <div className="w-1 h-1 bg-slate-400 rounded-full"></div>
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </div>
                 ))}

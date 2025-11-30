@@ -46,27 +46,57 @@ function calculateCentroid(orders: Order[]): { lat: number; lon: number } | null
 }
 
 /**
- * STEP 1: Map all order locations and identify geographic clusters
+ * Get region from coordinates using Geoapify reverse geocoding
  */
-function mapOrderLocations(orders: Order[]): Map<string, Order[]> {
-  console.log(`\n=== STEP 1: MAPPING ORDER LOCATIONS ===`)
+async function getRegionFromCoordinates(lat: number, lon: number): Promise<string> {
+  try {
+    const response = await fetch(
+      `https://api.geoapify.com/v1/geocode/reverse?lat=${lat}&lon=${lon}&apiKey=${process.env.NEXT_PUBLIC_GEOAPIFY_API_KEY}`
+    )
+    
+    if (!response.ok) return 'Unknown'
+    
+    const data = await response.json()
+    const feature = data.features?.[0]
+    
+    if (!feature) return 'Unknown'
+    
+    // Extract city or county for grouping
+    const city = feature.properties?.city
+    const county = feature.properties?.county
+    const state = feature.properties?.state
+    
+    return city || county || state || 'Unknown'
+  } catch (error) {
+    console.error('Reverse geocoding error:', error)
+    return 'Unknown'
+  }
+}
+
+/**
+ * STEP 1: Map all order locations by reverse geocoding coordinates
+ */
+async function mapOrderLocations(orders: Order[]): Promise<Map<string, Order[]>> {
+  console.log(`\n=== STEP 1: MAPPING ORDER LOCATIONS BY COORDINATES ===`)
   
   const locationMap = new Map<string, Order[]>()
   
+  // Get regions for all orders with coordinates
   for (const order of orders) {
     if (!order.latitude || !order.longitude) continue
     
-    const location = order.location_group || order.locationGroup || 'Unknown'
-    if (!locationMap.has(location)) {
-      locationMap.set(location, [])
+    const region = await getRegionFromCoordinates(order.latitude, order.longitude)
+    
+    if (!locationMap.has(region)) {
+      locationMap.set(region, [])
     }
-    locationMap.get(location)!.push(order)
+    locationMap.get(region)!.push(order)
   }
   
-  console.log(`Found ${locationMap.size} distinct locations:`)
-  for (const [location, orders] of locationMap) {
+  console.log(`Found ${locationMap.size} distinct regions:`)
+  for (const [region, orders] of locationMap) {
     const weight = orders.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
-    console.log(`  ${location}: ${orders.length} orders, ${Math.round(weight)}kg`)
+    console.log(`  ${region}: ${orders.length} orders, ${Math.round(weight)}kg`)
   }
   
   return locationMap
@@ -116,87 +146,107 @@ function analyzeRegionDistances(locationMap: Map<string, Order[]>): Map<string, 
 
 /**
  * STEP 3: Group nearby regions into combined routes
+ * Merges regions that are close to each other
  */
 function groupNearbyRegions(
   locationMap: Map<string, Order[]>,
   distanceMatrix: Map<string, { location: string; distance: number }[]>,
-  maxDistance: number = 150,
+  maxDistance: number = 100,
   targetWeight: number = 3000
 ): PlannedRoute[] {
-  console.log(`\n=== STEP 3: GROUPING NEARBY REGIONS ===`)
-  console.log(`Max distance: ${maxDistance}km, Target weight: ${targetWeight}kg`)
+  console.log(`\n=== STEP 3: MERGING NEARBY REGIONS ===`)
+  console.log(`Max merge distance: ${maxDistance}km`)
   
   const routes: PlannedRoute[] = []
   const used = new Set<string>()
   
-  // Sort locations by weight (HEAVIEST FIRST - priority to heavy regions)
-  const sortedLocations = Array.from(locationMap.entries())
+  // Calculate centroids for all regions
+  const regionCentroids = new Map<string, { lat: number; lon: number }>()
+  for (const [region, orders] of locationMap) {
+    const centroid = calculateCentroid(orders)
+    if (centroid) regionCentroids.set(region, centroid)
+  }
+  
+  console.log(`\nRegions found:`)
+  for (const [region, orders] of locationMap) {
+    const totalWeight = orders.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
+    console.log(`  ${region}: ${orders.length} orders, ${Math.round(totalWeight)}kg`)
+  }
+  
+  // Sort regions by weight (heaviest first)
+  const sortedRegions = Array.from(locationMap.entries())
     .sort((a, b) => {
       const weightA = a[1].reduce((sum, o) => sum + (o.totalWeight || 0), 0)
       const weightB = b[1].reduce((sum, o) => sum + (o.totalWeight || 0), 0)
-      return weightB - weightA // Heaviest first
+      return weightB - weightA
     })
   
-  console.log(`\nRegions sorted by weight (heaviest first):`)
-  sortedLocations.forEach(([loc, orders], i) => {
-    const weight = orders.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
-    console.log(`  ${i + 1}. ${loc}: ${Math.round(weight)}kg (${orders.length} orders)`)
-  })
+  console.log(`\n=== MERGING PROCESS ===`)
   
-  for (const [location, orders] of sortedLocations) {
-    if (used.has(location)) continue
+  for (const [region, orders] of sortedRegions) {
+    if (used.has(region)) continue
     
-    const locationWeight = orders.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
-    console.log(`\nBuilding route from ${location} (${Math.round(locationWeight)}kg)...`)
+    const regionWeight = orders.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
+    const centroid = regionCentroids.get(region)
+    if (!centroid) continue
     
-    // Start new route
-    const routeOrders = [...orders]
-    let routeWeight = locationWeight
-    const mergedLocations = [location]
-    used.add(location)
+    console.log(`\nStarting with ${region} (${Math.round(regionWeight)}kg, ${orders.length} orders)`)
     
-    // Try to merge with nearby locations
-    const nearbyLocations = distanceMatrix.get(location) || []
+    // Start with this region
+    let mergedOrders = [...orders]
+    let mergedWeight = regionWeight
+    const mergedRegions = [region]
+    used.add(region)
     
-    for (const { location: nearLocation, distance } of nearbyLocations) {
-      if (used.has(nearLocation)) continue
-      if (distance > maxDistance) break // Sorted by distance, so we can stop
+    // Find nearby regions to merge
+    for (const [nearRegion, nearOrders] of sortedRegions) {
+      if (used.has(nearRegion)) continue
       
-      const nearOrders = locationMap.get(nearLocation)!
+      const nearCentroid = regionCentroids.get(nearRegion)
+      if (!nearCentroid) continue
+      
+      // Calculate distance between region centroids
+      const distance = haversineDistance(
+        centroid.lat, centroid.lon,
+        nearCentroid.lat, nearCentroid.lon
+      )
+      
+      if (distance > maxDistance) continue
+      
       const nearWeight = nearOrders.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
+      const combinedWeight = mergedWeight + nearWeight
       
-      // Merge if within distance and weight limits
-      if (routeWeight + nearWeight <= targetWeight * 1.3) { // Allow 30% over target
-        routeOrders.push(...nearOrders)
-        routeWeight += nearWeight
-        mergedLocations.push(nearLocation)
-        used.add(nearLocation)
-        
-        console.log(`  ✓ Added ${nearLocation} (${Math.round(distance)}km, +${Math.round(nearWeight)}kg) → Total: ${Math.round(routeWeight)}kg`)
+      // Check if combined weight is reasonable (not too heavy)
+      if (combinedWeight <= targetWeight * 1.5) {
+        mergedOrders.push(...nearOrders)
+        mergedWeight = combinedWeight
+        mergedRegions.push(nearRegion)
+        used.add(nearRegion)
+        console.log(`  ✓ Merged ${nearRegion} (${Math.round(distance)}km away, +${Math.round(nearWeight)}kg) → Total: ${Math.round(mergedWeight)}kg`)
       } else {
-        console.log(`  ✗ Skipped ${nearLocation} (would exceed: ${Math.round(routeWeight + nearWeight)}kg > ${Math.round(targetWeight * 1.3)}kg)`)
+        console.log(`  ✗ Skipped ${nearRegion} (${Math.round(distance)}km away, would be ${Math.round(combinedWeight)}kg - too heavy)`)
       }
     }
     
-    // Create route
-    const centroid = calculateCentroid(routeOrders)
-    if (!centroid) continue
+    // Create merged route
+    const finalCentroid = calculateCentroid(mergedOrders)
+    if (!finalCentroid) continue
     
-    const routeName = mergedLocations.length > 1 
-      ? `${mergedLocations[0]} + ${mergedLocations.length - 1} more`
-      : mergedLocations[0]
+    const routeName = mergedRegions.length > 1
+      ? `${mergedRegions[0]} +${mergedRegions.length - 1}`
+      : mergedRegions[0]
     
     routes.push({
       id: `route-${routes.length + 1}`,
       name: routeName,
-      orders: routeOrders,
-      totalWeight: routeWeight,
-      estimatedDistance: 0, // Will be calculated later
-      centroid,
-      region: mergedLocations.join(' + ')
+      orders: mergedOrders,
+      totalWeight: mergedWeight,
+      estimatedDistance: 0,
+      centroid: finalCentroid,
+      region: mergedRegions.join(' + ')
     })
     
-    console.log(`  Route ${routes.length}: ${routeName} (${routeOrders.length} orders, ${Math.round(routeWeight)}kg)`)
+    console.log(`  → Created route: ${routeName} (${mergedOrders.length} orders, ${Math.round(mergedWeight)}kg)`)
   }
   
   return routes
@@ -247,74 +297,100 @@ async function optimizeRouteSequences(routes: PlannedRoute[]): Promise<PlannedRo
 }
 
 /**
- * STEP 5: Weight-Based Vehicle Assignment
- * Strategy: Heaviest routes get largest vehicles, descending order
+ * STEP 5: Best-Fit Vehicle Assignment Per Regional Group
+ * Strategy: For each region, find best vehicle considering capacity, drums, and restrictions
  */
 export function assignVehiclesToRoutes(
   routes: PlannedRoute[],
   vehicles: Vehicle[]
 ): Map<PlannedRoute, Vehicle> {
-  console.log(`\n=== STEP 5: WEIGHT-BASED VEHICLE ASSIGNMENT ===`)
-  console.log(`Strategy: Heaviest routes → Largest vehicles`)
+  console.log(`\n=== STEP 5: BEST-FIT VEHICLE ASSIGNMENT PER REGION ===`)
   
   const assignments = new Map<PlannedRoute, Vehicle>()
+  const usedVehicles = new Set<string>()
   
-  // Sort routes by weight (HEAVIEST FIRST)
+  // Sort routes by weight (heaviest first for priority)
   const sortedRoutes = [...routes].sort((a, b) => b.totalWeight - a.totalWeight)
   
-  // Sort vehicles by capacity (LARGEST FIRST)
-  const availableVehicles = [...vehicles].sort((a, b) => b.load_capacity - a.load_capacity)
+  console.log(`\nRegional groups (sorted by weight):`)
+  sortedRoutes.forEach((route, i) => {
+    const drumCount = route.orders.reduce((sum, o) => sum + (o.drums || 0), 0)
+    console.log(`  ${i + 1}. ${route.region}: ${Math.round(route.totalWeight)}kg, ${route.orders.length} orders${drumCount > 0 ? `, ${drumCount} drums` : ''}`)
+  })
   
-  console.log(`\nRoutes (sorted by weight):`)
-  sortedRoutes.forEach((r, i) => console.log(`  ${i + 1}. ${r.name}: ${Math.round(r.totalWeight)}kg (${r.orders.length} orders)`))
+  console.log(`\n=== FINDING BEST-FIT VEHICLES ===`)
   
-  console.log(`\nVehicles (sorted by capacity):`)
-  availableVehicles.forEach((v, i) => console.log(`  ${i + 1}. ${v.registration_number}: ${v.load_capacity}kg capacity`))
-  
-  console.log(`\n=== MATCHING ROUTES TO VEHICLES ===`)
-  
-  for (let i = 0; i < sortedRoutes.length; i++) {
-    const route = sortedRoutes[i]
+  for (const route of sortedRoutes) {
+    const weight = route.totalWeight
+    const drumCount = route.orders.reduce((sum, o) => sum + (o.drums || 0), 0)
+    const hasDrums = drumCount > 0
     
-    // Find smallest vehicle that can fit this route (best-fit)
-    let bestVehicle: Vehicle | null = null
-    let bestUtilization = 0
+    console.log(`\n${route.region} (${Math.round(weight)}kg${hasDrums ? `, ${drumCount} drums` : ''}):`)
     
-    for (const vehicle of availableVehicles) {
-      // Skip if already assigned
-      if (Array.from(assignments.values()).includes(vehicle)) continue
-      
-      // Check if route fits (95% capacity limit)
-      const maxCapacity = vehicle.load_capacity * 0.95
-      if (route.totalWeight > maxCapacity) continue
-      
-      // Calculate utilization
-      const utilization = (route.totalWeight / vehicle.load_capacity) * 100
-      
-      // Prefer higher utilization (better fit)
-      if (utilization > bestUtilization) {
-        bestUtilization = utilization
-        bestVehicle = vehicle
-      }
-    }
+    // Find all compatible vehicles
+    const compatibleVehicles = vehicles
+      .filter(v => !usedVehicles.has(v.registration_number))
+      .map(vehicle => {
+        // Use remainingCapacity if available (for auto-assign), otherwise use full capacity
+        const availableCapacity = (vehicle as any).remainingCapacity ?? vehicle.load_capacity
+        const maxCapacity = availableCapacity * 0.95
+        
+        // Check capacity
+        if (weight > maxCapacity) {
+          const usedWeight = (vehicle as any).usedCapacity ?? 0
+          console.log(`  ✗ ${vehicle.registration_number}: insufficient capacity (${Math.round(maxCapacity)}kg available${usedWeight > 0 ? `, ${Math.round(usedWeight)}kg used` : ''} < ${Math.round(weight)}kg needed)`)
+          return null
+        }
+        
+        // Check drum restrictions
+        if (hasDrums) {
+          const restrictions = (vehicle.restrictions || '').toLowerCase()
+          
+          // Hard no drums restriction
+          if (restrictions.includes('no') && restrictions.includes('210') && 
+              restrictions.includes('drum') && !restrictions.includes('ideally')) {
+            console.log(`  ✗ ${vehicle.registration_number}: no drums allowed`)
+            return null
+          }
+          
+          // Max drum limit
+          const maxDrumMatch = restrictions.match(/max\s+(\d+)x?\s+210/i)
+          if (maxDrumMatch) {
+            const maxDrums = parseInt(maxDrumMatch[1])
+            if (drumCount > maxDrums) {
+              console.log(`  ✗ ${vehicle.registration_number}: drum limit exceeded (${drumCount} > ${maxDrums})`)
+              return null
+            }
+          }
+        }
+        
+        const utilization = (weight / availableCapacity) * 100
+        return { vehicle, utilization, availableCapacity }
+      })
+      .filter(Boolean)
+      .sort((a, b) => b!.utilization - a!.utilization) // Best utilization first
     
-    if (bestVehicle) {
-      assignments.set(route, bestVehicle)
-      console.log(`  ✓ Route ${i + 1}: ${route.name} (${Math.round(route.totalWeight)}kg) → ${bestVehicle.registration_number} (${Math.round(bestUtilization)}% full)`)
+    if (compatibleVehicles.length > 0) {
+      const best = compatibleVehicles[0]!
+      assignments.set(route, best.vehicle)
+      usedVehicles.add(best.vehicle.registration_number)
+      console.log(`  ✓ ASSIGNED: ${best.vehicle.registration_number} (${Math.round(best.utilization)}% utilization)`)
     } else {
-      console.log(`  ✗ Route ${i + 1}: ${route.name} (${Math.round(route.totalWeight)}kg) - NO VEHICLE AVAILABLE`)
-      const remaining = availableVehicles.filter(v => !Array.from(assignments.values()).includes(v))
-      console.log(`     Remaining vehicles: ${remaining.map(v => `${v.registration_number}(${v.load_capacity}kg)`).join(', ') || 'NONE'}`)
+      console.log(`  ✗ NO COMPATIBLE VEHICLE FOUND`)
     }
   }
   
   console.log(`\n=== ASSIGNMENT SUMMARY ===`)
-  console.log(`Routes assigned: ${assignments.size}/${sortedRoutes.length}`)
-  console.log(`Vehicles used: ${assignments.size}/${availableVehicles.length}`)
-  const avgUtil = Array.from(assignments.entries()).reduce((sum, [route, vehicle]) => {
-    return sum + (route.totalWeight / vehicle.load_capacity) * 100
-  }, 0) / assignments.size
-  console.log(`Average utilization: ${Math.round(avgUtil)}%`)
+  console.log(`Regions: ${routes.length}`)
+  console.log(`Vehicles assigned: ${usedVehicles.size}/${vehicles.length}`)
+  console.log(`Routes assigned: ${assignments.size}/${routes.length}`)
+  
+  if (assignments.size > 0) {
+    const avgUtil = Array.from(assignments.entries()).reduce((sum, [route, vehicle]) => {
+      return sum + (route.totalWeight / vehicle.load_capacity) * 100
+    }, 0) / assignments.size
+    console.log(`Average utilization: ${Math.round(avgUtil)}%`)
+  }
   
   return assignments
 }
@@ -342,6 +418,12 @@ async function optimizeWithGeoapify(
       weight: Math.round(o.totalWeight || 0),
       deliveryDuration: 300
     }))
+  
+  // Validate we have customers to optimize
+  if (customers.length === 0) {
+    console.log('No orders with valid coordinates for Geoapify optimization')
+    return []
+  }
   
   // Convert vehicles to Geoapify format (sorted by capacity)
   const geoVehicles = vehicles
@@ -407,32 +489,13 @@ export async function planRoutesFirst(
   } = {}
 ): Promise<PlannedRoute[]> {
   console.log(`\n╔════════════════════════════════════════════════════════╗`)
-  console.log(`║  GEOAPIFY-POWERED ROUTE OPTIMIZATION                   ║`)
+  console.log(`║  REGIONAL GROUPING WITH PROXIMITY MERGING              ║`)
   console.log(`╚════════════════════════════════════════════════════════╝`)
   
-  // Try Geoapify first
-  const geoapifyRoutes = await optimizeWithGeoapify(orders, vehicles)
+  // Use regional grouping with proximity merging
+  const { maxRegionDistance = 100, targetRouteWeight = 3500 } = options
   
-  if (geoapifyRoutes.length > 0) {
-    // Assign vehicles to optimized routes
-    const vehicleAssignments = assignVehiclesToRoutes(geoapifyRoutes, vehicles)
-    
-    console.log(`\n=== GEOAPIFY OPTIMIZATION SUMMARY ===`)
-    console.log(`Routes created: ${geoapifyRoutes.length}`)
-    console.log(`Vehicles used: ${vehicleAssignments.size}`)
-    const avgUtil = Array.from(vehicleAssignments.entries()).reduce((sum, [route, vehicle]) => {
-      return sum + (route.totalWeight / vehicle.load_capacity) * 100
-    }, 0) / vehicleAssignments.size
-    console.log(`Average utilization: ${Math.round(avgUtil)}%`)
-    
-    return geoapifyRoutes
-  }
-  
-  // Fallback to manual planning
-  console.log(`\n=== FALLBACK: MANUAL ROUTE PLANNING ===`)
-  const { maxRegionDistance = 100, targetRouteWeight = 2500 } = options
-  
-  const locationMap = mapOrderLocations(orders)
+  const locationMap = await mapOrderLocations(orders)
   const distanceMatrix = analyzeRegionDistances(locationMap)
   const routes = groupNearbyRegions(locationMap, distanceMatrix, maxRegionDistance, targetRouteWeight)
   await optimizeRouteSequences(routes)

@@ -900,7 +900,7 @@ function optimizeRouteNearestNeighbor(
 
 /**
  * Calculate ROUND TRIP metrics: Depot → All Customers → Depot
- * Returns total distance and estimated duration
+ * Returns total distance and estimated duration with realistic traffic
  */
 function calculateRouteMetrics(
   orders: Order[],
@@ -936,10 +936,13 @@ function calculateRouteMetrics(
     depotLat, depotLon
   )
   
-  // Duration: 60 km/h average + 15 min per stop
-  const drivingTime = totalDistance / 60 // hours
-  const stopTime = validOrders.length * 0.25 // 15 min per stop in hours
-  const totalDuration = (drivingTime + stopTime) * 60 // Convert to minutes
+  // REALISTIC DURATION: Highway 80km/h, Urban 40km/h, with traffic buffer
+  // Assume 70% highway, 30% urban for mixed routes
+  const avgSpeed = 70 // km/h realistic average (highways 80-100, urban 30-50, traffic delays)
+  const drivingTime = totalDistance / avgSpeed // hours
+  const stopTime = validOrders.length * 0.25 // 15 min per stop
+  const trafficBuffer = drivingTime * 0.15 // 15% buffer for traffic/delays
+  const totalDuration = (drivingTime + stopTime + trafficBuffer) * 60 // minutes
   
   return {
     distance: Math.round(totalDistance * 10) / 10,
@@ -2405,30 +2408,68 @@ export async function assignVehiclesWithDrivers(
 */
 
 /**
- * Schedule unassigned orders for next day ONLY
- * Don't spread across multiple days - keep trying to fit on current day first
+ * Schedule unassigned orders for next day recursively
+ * If next day is also full, move to day after that
  */
-export async function scheduleOrdersForNextDays(orders: Order[]): Promise<void> {
+export async function scheduleOrdersForNextDays(orders: Order[], currentDate?: string): Promise<void> {
   if (orders.length === 0) return
   
   const supabase = createClient()
-  const today = new Date()
-  const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000)
+  const baseDate = currentDate ? new Date(currentDate) : new Date()
+  const nextDay = new Date(baseDate.getTime() + 24 * 60 * 60 * 1000)
+  const nextDayStr = nextDay.toISOString().split('T')[0]
   
-  console.log(`\n=== SCHEDULING ${orders.length} UNASSIGNED ORDERS FOR TOMORROW ===`)
-  console.log('These orders could not fit in any available vehicle today')
+  console.log(`\n=== CHECKING CAPACITY FOR ${nextDayStr} ===`)
   
-  for (const order of orders) {
-    await supabase
-      .from('pending_orders')
-      .update({
-        scheduled_date: tomorrow.toISOString().split('T')[0],
-        priority: ((order as any).priority || 0) + 1,
-        status: 'scheduled'
-      })
-      .eq('id', (order as any).id)
-    
-    console.log(`  ${order.customerName} → Tomorrow (${tomorrow.toISOString().split('T')[0]})`)
+  // Get all vehicles
+  const { data: vehicles } = await supabase
+    .from('vehiclesc')
+    .select('id, registration_number, load_capacity')
+    .not('load_capacity', 'is', null)
+    .gt('load_capacity', 0)
+  
+  if (!vehicles) return
+  
+  // Get orders already assigned to next day
+  const { data: existingOrders } = await supabase
+    .from('pending_orders')
+    .select('assigned_vehicle_id, total_weight')
+    .eq('scheduled_date', nextDayStr)
+    .in('status', ['assigned', 'scheduled'])
+  
+  // Calculate remaining capacity for next day
+  const vehicleCapacity = new Map()
+  for (const vehicle of vehicles) {
+    const assigned = existingOrders?.filter(o => o.assigned_vehicle_id === vehicle.id) || []
+    const used = assigned.reduce((sum, o) => sum + (o.total_weight || 0), 0)
+    vehicleCapacity.set(vehicle.id, vehicle.load_capacity - used)
+  }
+  
+  const totalAvailable = Array.from(vehicleCapacity.values()).reduce((sum, cap) => sum + cap, 0)
+  const totalNeeded = orders.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
+  
+  console.log(`Total capacity available: ${Math.round(totalAvailable)}kg`)
+  console.log(`Total weight needed: ${Math.round(totalNeeded)}kg`)
+  
+  if (totalNeeded <= totalAvailable * 0.95) {
+    // Fits in next day
+    console.log(`✓ Orders fit in ${nextDayStr}`)
+    for (const order of orders) {
+      await supabase
+        .from('pending_orders')
+        .update({
+          scheduled_date: nextDayStr,
+          priority: ((order as any).priority || 0) + 1,
+          status: 'scheduled'
+        })
+        .eq('id', (order as any).id)
+      
+      console.log(`  ${order.customerName} → ${nextDayStr}`)
+    }
+  } else {
+    // Next day is also full, move to day after
+    console.log(`✗ ${nextDayStr} is full, checking next day...`)
+    await scheduleOrdersForNextDays(orders, nextDayStr)
   }
 }
 

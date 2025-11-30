@@ -1328,7 +1328,7 @@ export default function LoadPlanPage() {
 
       // Parse data rows
       const orders: any[] = []
-      const detectedNewClients: string[] = []
+      const detectedNewClients: Array<{id: string, name: string, location: string}> = []
 
       for (let i = 1; i < jsonData.length; i++) {
         const row = jsonData[i]
@@ -1354,8 +1354,8 @@ export default function LoadPlanPage() {
         const existingCustomer = customerMap.get(customerId)
         const isNewClient = !existingCustomer
 
-        if (isNewClient && !detectedNewClients.includes(customerName)) {
-          detectedNewClients.push(customerName)
+        if (isNewClient && !detectedNewClients.find(c => c.id === customerId)) {
+          detectedNewClients.push({ id: customerId, name: customerName, location })
         }
 
         // Use customer's stored location if available, otherwise use from Excel
@@ -1383,6 +1383,16 @@ export default function LoadPlanPage() {
       }
 
       // Geocode only orders that need it (new customers without coordinates)
+      // Check for new customers and prompt for location
+      if (detectedNewClients.length > 0) {
+        setIsProcessingExcel(false)
+        setParsedOrders(orders)
+        ;(window as any).pendingCustomers = detectedNewClients
+        setPendingCustomer(detectedNewClients[0])
+        setShowNewCustomerModal(true)
+        return
+      }
+
       const ordersNeedingGeocode = orders.filter(o => !o.latitude || !o.longitude)
       
       if (ordersNeedingGeocode.length > 0) {
@@ -1599,8 +1609,18 @@ export default function LoadPlanPage() {
       console.log(`Existing assignments: ${existingVehicleLoads.size} vehicle-date combinations`)
       console.log(`Filtered out ${unassignedOrders.length - remainingOrders.length} already-processed orders`)
 
-      // Day 1: Assign to TODAY - but only to vehicles with remaining capacity
+      // Day 1: Assign to TODAY - but only to vehicles with remaining capacity and NOT on trip
       console.log('Day 1: Starting assignment with available capacity...')
+      
+      // Get vehicles that are currently on trips today
+      const { data: vehiclesOnTrip } = await supabase
+        .from('pending_orders')
+        .select('assigned_vehicle_id')
+        .eq('scheduled_date', today)
+        .eq('status', 'in-trip')
+      
+      const vehicleIdsOnTrip = new Set(vehiclesOnTrip?.map(o => o.assigned_vehicle_id).filter(Boolean) || [])
+      console.log(`Vehicles on trip today: ${vehicleIdsOnTrip.size}`, Array.from(vehicleIdsOnTrip))
       
       // Calculate remaining capacity for each vehicle TODAY
       const vehiclesWithCapacityToday = vehiclesData.map(vehicle => {
@@ -1609,13 +1629,15 @@ export default function LoadPlanPage() {
         const usedCapacity = existing ? existing.currentWeight : 0
         const capacity = parseInt(vehicle.load_capacity) || 0
         const remainingCapacity = capacity - usedCapacity
+        const isOnTrip = vehicleIdsOnTrip.has(vehicle.id)
         
         return {
           ...vehicle,
-          load_capacity: capacity, // Ensure it's a number
+          load_capacity: remainingCapacity,
+          originalCapacity: capacity,
           remainingCapacity,
           usedCapacity,
-          hasCapacity: remainingCapacity > 0 && capacity > 0
+          hasCapacity: remainingCapacity > 0 && capacity > 0 && !isOnTrip
         }
       }).filter(v => v.hasCapacity)
       
@@ -1848,11 +1870,38 @@ export default function LoadPlanPage() {
       
       if (shouldCascade) {
         console.log('Day 2: Starting assignment (today at capacity)...')
-        console.log(`Using all ${vehiclesData.length} vehicles for tomorrow assignment (fresh assignment, vehicles available for reuse)`)
+        
+        // Get vehicles on trip tomorrow
+        const { data: vehiclesOnTripTomorrow } = await supabase
+          .from('pending_orders')
+          .select('assigned_vehicle_id')
+          .eq('scheduled_date', tomorrow)
+          .eq('status', 'in-trip')
+        
+        const vehicleIdsOnTripTomorrow = new Set(vehiclesOnTripTomorrow?.map(o => o.assigned_vehicle_id).filter(Boolean) || [])
+        
+        // Calculate remaining capacity for tomorrow
+        const vehiclesWithCapacityTomorrow = vehiclesData.map(vehicle => {
+          const key = `${vehicle.id}-${tomorrow}`
+          const existing = existingVehicleLoads.get(key)
+          const usedCapacity = existing ? existing.currentWeight : 0
+          const capacity = parseInt(vehicle.load_capacity) || 0
+          const remainingCapacity = capacity - usedCapacity
+          const isOnTrip = vehicleIdsOnTripTomorrow.has(vehicle.id)
+          
+          return {
+            ...vehicle,
+            load_capacity: remainingCapacity,
+            remainingCapacity,
+            hasCapacity: remainingCapacity > 0 && capacity > 0 && !isOnTrip
+          }
+        }).filter(v => v.hasCapacity)
+        
+        console.log(`Using ${vehiclesWithCapacityTomorrow.length} vehicles with capacity for tomorrow (${vehicleIdsOnTripTomorrow.size} on trip, ${vehiclesData.length - vehiclesWithCapacityTomorrow.length - vehicleIdsOnTripTomorrow.size} at capacity)`)
         
         // Reset all drivers to available for tomorrow's assignment
         await resetAllDriversAvailable()
-        const tomorrowAssignments = await assignVehiclesWithDrivers(remainingOrders, vehiclesData, 1)
+        const tomorrowAssignments = await assignVehiclesWithDrivers(remainingOrders, vehiclesWithCapacityTomorrow, 1)
         
         // Merge with existing and preserve location_group
         tomorrowAssignments.forEach(assignment => {
@@ -1902,11 +1951,38 @@ export default function LoadPlanPage() {
         console.log(`Day 3: ${remainingOrders.length} orders remaining for day after`)
         if (remainingOrders.length > 0) {
           console.log('Day 3: Starting assignment...')
-          console.log(`Using all ${vehiclesData.length} vehicles for day after assignment`)
+          
+          // Get vehicles on trip day after
+          const { data: vehiclesOnTripDayAfter } = await supabase
+            .from('pending_orders')
+            .select('assigned_vehicle_id')
+            .eq('scheduled_date', dayAfter)
+            .eq('status', 'in-trip')
+          
+          const vehicleIdsOnTripDayAfter = new Set(vehiclesOnTripDayAfter?.map(o => o.assigned_vehicle_id).filter(Boolean) || [])
+          
+          // Calculate remaining capacity for day after
+          const vehiclesWithCapacityDayAfter = vehiclesData.map(vehicle => {
+            const key = `${vehicle.id}-${dayAfter}`
+            const existing = existingVehicleLoads.get(key)
+            const usedCapacity = existing ? existing.currentWeight : 0
+            const capacity = parseInt(vehicle.load_capacity) || 0
+            const remainingCapacity = capacity - usedCapacity
+            const isOnTrip = vehicleIdsOnTripDayAfter.has(vehicle.id)
+            
+            return {
+              ...vehicle,
+              load_capacity: remainingCapacity,
+              remainingCapacity,
+              hasCapacity: remainingCapacity > 0 && capacity > 0 && !isOnTrip
+            }
+          }).filter(v => v.hasCapacity)
+          
+          console.log(`Using ${vehiclesWithCapacityDayAfter.length} vehicles with capacity for day after (${vehicleIdsOnTripDayAfter.size} on trip, ${vehiclesData.length - vehiclesWithCapacityDayAfter.length - vehicleIdsOnTripDayAfter.size} at capacity)`)
           
           // Reset all drivers to available for day after assignment
         await resetAllDriversAvailable()
-        const dayAfterAssignments = await assignVehiclesWithDrivers(remainingOrders, vehiclesData, 1)
+        const dayAfterAssignments = await assignVehiclesWithDrivers(remainingOrders, vehiclesWithCapacityDayAfter, 1)
           
           // Merge with existing and preserve location_group
           dayAfterAssignments.forEach(assignment => {
@@ -2090,6 +2166,16 @@ export default function LoadPlanPage() {
       let createdTrips = 0
       const today = new Date().toISOString().split('T')[0]
 
+      // Get vehicles that already have trips today
+      const { data: vehiclesWithTrips } = await supabase
+        .from('pending_orders')
+        .select('assigned_vehicle_id')
+        .eq('scheduled_date', today)
+        .eq('status', 'in-trip')
+      
+      const vehicleIdsWithTrips = new Set(vehiclesWithTrips?.map(o => o.assigned_vehicle_id).filter(Boolean) || [])
+      console.log(`Vehicles already on trips today: ${vehicleIdsWithTrips.size}`, Array.from(vehicleIdsWithTrips))
+
       // Process only today
       const allAssignments = [
         { assignments: todayAssignments, date: today, label: 'Today' }
@@ -2098,9 +2184,9 @@ export default function LoadPlanPage() {
       for (const { assignments, date, label } of allAssignments) {
         console.log(`${label} assignments:`, assignments.length, 'total vehicles')
         console.log(`${label} assignments with orders:`, assignments.filter(a => a.assignedOrders?.length > 0).length)
-        const assignedVehicles = assignments.filter(a => a.assignedOrders && a.assignedOrders.length > 0)
+        const assignedVehicles = assignments.filter(a => a.assignedOrders && a.assignedOrders.length > 0 && !vehicleIdsWithTrips.has(a.vehicle.id))
         if (assignedVehicles.length === 0) {
-          console.log(`Skipping ${label} - no vehicles with orders`)
+          console.log(`Skipping ${label} - no vehicles with orders or all already on trips`)
           continue
         }
 
@@ -2276,7 +2362,19 @@ export default function LoadPlanPage() {
 
       await fetchData()
       await loadPendingOrders()
-      setExcelSuccess(`Successfully created ${createdTrips} trips for today with optimized routes!`)
+      
+      const allAssignedVehicles = todayAssignments.filter(a => a.assignedOrders && a.assignedOrders.length > 0)
+      const vehiclesWithoutDrivers = allAssignedVehicles.filter(a => !a.assignedDrivers || a.assignedDrivers.length === 0).length
+      const vehiclesAlreadyOnTrip = vehicleIdsWithTrips.size
+      
+      let message = `Successfully created ${createdTrips} trip${createdTrips !== 1 ? 's' : ''} for today with optimized routes!`
+      if (vehiclesAlreadyOnTrip > 0) {
+        message += `\n\n✓ ${vehiclesAlreadyOnTrip} vehicle${vehiclesAlreadyOnTrip !== 1 ? 's' : ''} already on trip - skipped.`
+      }
+      if (vehiclesWithoutDrivers > 0) {
+        message += `\n\n⚠️ ${vehiclesWithoutDrivers} vehicle${vehiclesWithoutDrivers !== 1 ? 's' : ''} skipped - no driver assigned. Assign drivers to create trips for remaining vehicles.`
+      }
+      setExcelSuccess(message)
 
     } catch (err) {
       console.error('Error creating trips:', err)
@@ -2805,8 +2903,20 @@ export default function LoadPlanPage() {
                                     .eq('status', 'assigned')
                                     .not('assigned_vehicle_id', 'is', null)
 
+                                  // Check for orders on trips
+                                  const { data: ordersOnTrip } = await supabase
+                                    .from('pending_orders')
+                                    .select('*')
+                                    .eq('status', 'in-trip')
+                                    .not('assigned_vehicle_id', 'is', null)
+
+                                  if (ordersOnTrip && ordersOnTrip.length > 0) {
+                                    toast.error(`Cannot unassign ${ordersOnTrip.length} order(s) - they are on a trip. Complete or cancel trips first.`)
+                                    return
+                                  }
+
                                   if (!assignedNotOnTrip || assignedNotOnTrip.length === 0) {
-                                    toast.info('No assigned orders to unassign (trips already created)')
+                                    toast.info('No assigned orders to unassign')
                                     return
                                   }
 
@@ -3039,41 +3149,29 @@ export default function LoadPlanPage() {
                     // Group vehicles by zones from auto-assignment
                     const displayAssignments = vehicleAssignments.length > 0 ? vehicleAssignments : (selectedDate === 'today' ? todayAssignments : selectedDate === 'tomorrow' ? tomorrowAssignments : dayAfterAssignments)
                     
-                    // Filter out paired vehicles that don't have sufficient load to justify pairing
+                    // Handle paired vehicles - always show together
                     const filteredAssignments = displayAssignments.filter(a => {
                       if (a.assignedOrders.length === 0) return false
                       
-                      // For paired vehicles, only show if there's sufficient combined load
+                      // For paired vehicles, if one has orders, show both
                       if (a.vehicle.registration_number === 'CN30435' || a.vehicle.registration_number === 'Mission Trailer') {
                         const missionTrailer = displayAssignments.find(v => v.vehicle.registration_number === 'Mission Trailer')
                         const cn30435 = displayAssignments.find(v => v.vehicle.registration_number === 'CN30435')
                         
+                        // If either has orders, show both (they always travel together)
                         if (missionTrailer && cn30435) {
-                          const combinedWeight = missionTrailer.totalWeight + cn30435.totalWeight
-                          const combinedCapacity = missionTrailer.capacity + cn30435.capacity
-                          const combinedUtilization = (combinedWeight / combinedCapacity) * 100
-                          
-                          // Only show paired vehicles if combined utilization >= 50% or combined weight >= 800kg
-                          const isPairingJustified = combinedUtilization >= 50 || combinedWeight >= 800
-                          
-                          console.log(`Pairing check for ${a.vehicle.registration_number}: combined weight ${combinedWeight}kg, utilization ${combinedUtilization.toFixed(1)}%, justified: ${isPairingJustified}`)
-                          
-                          if (!isPairingJustified) {
-                            // If pairing not justified, only show the vehicle with orders
-                            console.log(`Pairing not justified for ${a.vehicle.registration_number} (${combinedWeight}kg, ${combinedUtilization.toFixed(1)}%)`)
-                            return a.assignedOrders.length > 0
-                          }
-                          
-                          // If Mission Trailer is chosen, always show CN30435 with it
-                          if (a.vehicle.registration_number === 'Mission Trailer' && isPairingJustified) {
-                            return true
-                          }
-                          
-                          // If CN30435 is chosen and Mission Trailer has orders, show both
-                          if (a.vehicle.registration_number === 'CN30435' && isPairingJustified) {
+                          const hasOrders = missionTrailer.assignedOrders.length > 0 || cn30435.assignedOrders.length > 0
+                          if (hasOrders) {
+                            // Share the same driver between both
+                            const sharedDriver = cn30435.assignedDrivers || missionTrailer.assignedDrivers
+                            if (sharedDriver && sharedDriver.length > 0) {
+                              cn30435.assignedDrivers = sharedDriver
+                              missionTrailer.assignedDrivers = sharedDriver
+                            }
                             return true
                           }
                         }
+                        return false
                       }
                       
                       return true
@@ -3106,14 +3204,21 @@ export default function LoadPlanPage() {
                         }
                       }
                       
-                      console.log(`Vehicle ${assignment.vehicle.registration_number} zone: ${dynamicZone} (from ${assignment.destinationGroup ? 'destinationGroup' : 'orders'})`)
-                      
-                      // Show Mission Trailer with CN30435's zone and driver
-                      if (assignment.vehicle.registration_number === 'Mission Trailer') {
+                      // Paired vehicles always share same zone and driver
+                      if (assignment.vehicle.registration_number === 'CN30435' || assignment.vehicle.registration_number === 'Mission Trailer') {
                         const cn30435 = assignedVehicles.find(a => a.vehicle.registration_number === 'CN30435')
-                        if (cn30435) {
-                          dynamicZone = cn30435.destinationGroup || dynamicZone
-                          assignment.assignedDrivers = cn30435.assignedDrivers
+                        const trailer = assignedVehicles.find(a => a.vehicle.registration_number === 'Mission Trailer')
+                        
+                        if (cn30435 && trailer) {
+                          // Use zone from whichever has orders, or CN30435's zone
+                          dynamicZone = cn30435.destinationGroup || trailer.destinationGroup || dynamicZone
+                          // Share driver
+                          const sharedDriver = cn30435.assignedDrivers || trailer.assignedDrivers
+                          cn30435.assignedDrivers = sharedDriver
+                          trailer.assignedDrivers = sharedDriver
+                          // Both use same zone
+                          cn30435.dynamicZone = dynamicZone
+                          trailer.dynamicZone = dynamicZone
                         }
                       }
                       
@@ -3171,6 +3276,9 @@ export default function LoadPlanPage() {
                                             <p className="font-semibold text-slate-800 text-sm truncate">{assignment.vehicle.registration_number}</p>
                                             {isPaired && (
                                               <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs rounded font-medium">Paired</span>
+                                            )}
+                                            {assignment.assignedOrders.some(o => o.status === 'in-trip') && (
+                                              <span className="px-1.5 py-0.5 bg-blue-600 text-white text-xs rounded font-bold">ON TRIP</span>
                                             )}
                                           </div>
                                           <p className="text-xs text-slate-500 mt-0.5 truncate">{assignment.vehicle.description}</p>
