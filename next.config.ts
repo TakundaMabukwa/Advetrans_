@@ -18,13 +18,10 @@ const nextConfig = {
       'mapbox-gl': 'mapbox-gl/dist/mapbox-gl.js',
     };
     
-    config.cache = false;
-    config.parallelism = 1;
-    
-    config.optimization = {
-      ...config.optimization,
-      moduleIds: 'deterministic',
-      splitChunks: false,
+    config.optimization.splitChunks = {
+      chunks: 'all',
+      maxInitialRequests: 25,
+      minSize: 20000,
     };
     
     return config;
