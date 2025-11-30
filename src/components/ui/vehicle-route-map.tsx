@@ -15,6 +15,9 @@ export function VehicleRouteMap({ geometry, stops, vehicleName, depot }: Vehicle
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<mapboxgl.Map | null>(null)
 
+
+
+
   useEffect(() => {
     if (!mapContainer.current || map.current) return
 
@@ -30,14 +33,23 @@ export function VehicleRouteMap({ geometry, stops, vehicleName, depot }: Vehicle
     map.current.on('load', () => {
       if (!map.current) return
 
-      // Add route line
-      if (geometry) {
+      // Use stored optimized geometry if available
+      if (geometry?.coordinates && Array.isArray(geometry.coordinates)) {
+        const coords = geometry.coordinates
+        // Simplify if too many points
+        const simplified = coords.length > 500 
+          ? coords.filter((_: any, i: number) => i % Math.ceil(coords.length / 500) === 0 || i === coords.length - 1)
+          : coords
+
         map.current.addSource('route', {
           type: 'geojson',
           data: {
             type: 'Feature',
             properties: {},
-            geometry: geometry
+            geometry: {
+              type: 'LineString',
+              coordinates: simplified
+            }
           }
         })
 
@@ -51,9 +63,11 @@ export function VehicleRouteMap({ geometry, stops, vehicleName, depot }: Vehicle
           },
           paint: {
             'line-color': '#3b82f6',
-            'line-width': 4
+            'line-width': 4,
+            'line-opacity': 0.8
           }
         })
+        console.log(`Optimized route from database: ${simplified.length} points`)
       }
 
       // Add depot marker

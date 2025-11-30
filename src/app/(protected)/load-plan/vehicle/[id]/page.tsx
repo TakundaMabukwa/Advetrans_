@@ -23,6 +23,8 @@ export default function VehicleRoutePlanningPage() {
   const [loading, setLoading] = useState(true)
   const [routeGeometry, setRouteGeometry] = useState<any>(null)
   const [isSaving, setIsSaving] = useState(false)
+  const [drivers, setDrivers] = useState<any[]>([])
+  const [selectedDriver, setSelectedDriver] = useState<string>('')
 
   const DEFAULT_LOADING_SITE = "Fuchs Lubricants, Stikland Industrial, 9 Square Street, Bellville 7530"
 
@@ -32,7 +34,6 @@ export default function VehicleRoutePlanningPage() {
 
   const loadVehicleData = async () => {
     try {
-      // Fetch vehicle details
       const { data: vehicleData } = await supabase
         .from('vehiclesc')
         .select('*')
@@ -41,16 +42,13 @@ export default function VehicleRoutePlanningPage() {
 
       setVehicle(vehicleData)
 
-      // Get selected date from URL or default to today
       const urlParams = new URLSearchParams(window.location.search)
       const selectedDate = urlParams.get('date') || new Date().toISOString().split('T')[0]
 
-      // Check if this is a paired vehicle (CN30435 or Mission Trailer)
       const isPaired = vehicleData?.registration_number === 'CN30435' || vehicleData?.registration_number === 'Mission Trailer'
       let ordersData = []
 
       if (isPaired) {
-        // For paired vehicles, fetch orders for BOTH vehicles
         const { data: allVehicles } = await supabase
           .from('vehiclesc')
           .select('id')
@@ -66,9 +64,7 @@ export default function VehicleRoutePlanningPage() {
           .order('id')
         
         ordersData = pairedOrders || []
-        console.log('Loaded orders for paired vehicles on', selectedDate, ':', ordersData)
       } else {
-        // For non-paired vehicles, fetch only this vehicle's orders
         const { data: singleOrders } = await supabase
           .from('pending_orders')
           .select('*')
@@ -77,49 +73,73 @@ export default function VehicleRoutePlanningPage() {
           .order('id')
         
         ordersData = singleOrders || []
-        console.log('Loaded orders for vehicle', vehicleId, 'on', selectedDate, ':', ordersData)
       }
       
-      // Sort orders by delivery sequence (optimized order from Geoapify)
       const sortedOrders = ordersData.sort((a, b) => {
         const seqA = a.delivery_sequence || 999
         const seqB = b.delivery_sequence || 999
         return seqA - seqB
       })
       setAssignedOrders(sortedOrders)
-      console.log('Orders sorted by delivery sequence:', sortedOrders.map(o => `${o.delivery_sequence}: ${o.customer_name}`))
       
-      // Fetch optimized route geometry
-      const { data: routeData, error: routeError } = await supabase
+      const { data: routeData } = await supabase
         .from('vehicle_routes')
         .select('route_geometry, distance, duration')
         .eq('vehicle_id', vehicleId)
         .eq('scheduled_date', selectedDate)
         .single()
       
-      console.log('Route query result:', { routeData, routeError, vehicleId, selectedDate })
-      
       if (routeData?.route_geometry) {
-        console.log('✓ Loaded optimized route geometry from database')
-        console.log('Route geometry type:', Array.isArray(routeData.route_geometry) ? 'Array' : typeof routeData.route_geometry)
-        console.log('Route geometry sample:', JSON.stringify(routeData.route_geometry).substring(0, 200))
         setRouteGeometry(routeData.route_geometry)
-      } else {
-        console.log('✗ No route geometry found in database')
       }
 
-      // Fetch unassigned orders
       const { data: unassignedData } = await supabase
         .from('pending_orders')
         .select('*')
         .eq('status', 'unassigned')
 
       setUnassignedOrders(unassignedData || [])
+
+      const { data: driversData } = await supabase
+        .from('drivers')
+        .select('id, first_name, surname, available')
+        .order('first_name')
+      
+      setDrivers(driversData || [])
     } catch (error) {
       console.error('Error loading vehicle data:', error)
       toast.error('Failed to load vehicle data')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleAssignDriver = async () => {
+    if (!selectedDriver) {
+      toast.error('Please select a driver')
+      return
+    }
+
+    try {
+      for (const order of assignedOrders) {
+        await supabase
+          .from('pending_orders')
+          .update({ assigned_driver_id: selectedDriver })
+          .eq('id', order.id)
+      }
+
+      await supabase
+        .from('drivers')
+        .update({ available: false })
+        .eq('id', selectedDriver)
+
+      const driverName = drivers.find(d => d.id === selectedDriver)
+      toast.success(`Driver ${driverName?.first_name} ${driverName?.surname} assigned to ${assignedOrders.length} orders`)
+      setSelectedDriver('')
+      await loadVehicleData()
+    } catch (error) {
+      console.error('Error assigning driver:', error)
+      toast.error('Failed to assign driver')
     }
   }
 
@@ -161,10 +181,8 @@ export default function VehicleRoutePlanningPage() {
       const urlParams = new URLSearchParams(window.location.search)
       const selectedDate = urlParams.get('date') || new Date().toISOString().split('T')[0]
 
-      // Re-optimize route with Geoapify
       const { orders: optimizedOrders, distance, duration, geometry } = await reoptimizeVehicleRoute(assignedOrders)
 
-      // Update assigned orders with new sequence
       for (let idx = 0; idx < optimizedOrders.length; idx++) {
         await supabase
           .from('pending_orders')
@@ -177,7 +195,6 @@ export default function VehicleRoutePlanningPage() {
           .eq('id', optimizedOrders[idx].id)
       }
 
-      // Update unassigned orders - clear ALL their assignments
       for (const order of unassignedOrders) {
         await supabase
           .from('pending_orders')
@@ -190,7 +207,6 @@ export default function VehicleRoutePlanningPage() {
           .eq('id', order.id)
       }
 
-      // Replace route geometry in database
       if (geometry && optimizedOrders.length > 0) {
         await supabase
           .from('vehicle_routes')
@@ -246,7 +262,7 @@ export default function VehicleRoutePlanningPage() {
           </Button>
         </div>
 
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-5 gap-4">
           <Card>
             <CardContent className="pt-6">
               <p className="text-sm text-gray-600">Vehicle</p>
@@ -271,7 +287,49 @@ export default function VehicleRoutePlanningPage() {
               <p className="font-semibold">{assignedOrders.length}</p>
             </CardContent>
           </Card>
+          <Card>
+            <CardContent className="pt-6 space-y-2">
+              <p className="text-sm text-gray-600">Assign Driver</p>
+              <select
+                value={selectedDriver}
+                onChange={(e) => setSelectedDriver(e.target.value)}
+                className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+              >
+                <option value="">Select driver...</option>
+                {drivers.map(driver => (
+                  <option key={driver.id} value={driver.id}>
+                    {driver.first_name} {driver.surname} {driver.available ? '' : '(busy)'}
+                  </option>
+                ))}
+              </select>
+              <Button
+                onClick={handleAssignDriver}
+                disabled={!selectedDriver || assignedOrders.length === 0}
+                size="sm"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Assign
+              </Button>
+            </CardContent>
+          </Card>
         </div>
+
+        {routeGeometry && (
+          <div className="grid grid-cols-2 gap-4">
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-gray-600">Route Distance</p>
+                <p className="font-semibold text-lg">View on map</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-sm text-gray-600">Estimated Duration</p>
+                <p className="font-semibold text-lg">View on map</p>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {assignedOrders.length > 0 && assignedOrders.every(o => o.latitude && o.longitude) && (
           <Card>
@@ -283,9 +341,16 @@ export default function VehicleRoutePlanningPage() {
             </CardHeader>
             <CardContent>
               <VehicleRouteMap
-                geometry={Array.isArray(routeGeometry) && routeGeometry.length > 0 && Array.isArray(routeGeometry[0]) && typeof routeGeometry[0][0] === 'number' 
-                  ? { type: 'LineString', coordinates: routeGeometry } 
-                  : routeGeometry}
+                geometry={(() => {
+                  if (!routeGeometry) return null
+                  if (routeGeometry.type === 'LineString') return routeGeometry
+                  if (Array.isArray(routeGeometry) && routeGeometry.length > 0) {
+                    if (Array.isArray(routeGeometry[0]) && typeof routeGeometry[0][0] === 'number') {
+                      return { type: 'LineString', coordinates: routeGeometry }
+                    }
+                  }
+                  return null
+                })()}
                 stops={assignedOrders
                   .filter(o => o.latitude && o.longitude)
                   .sort((a, b) => (a.delivery_sequence || 999) - (b.delivery_sequence || 999))

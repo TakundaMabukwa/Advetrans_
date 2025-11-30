@@ -1,5 +1,7 @@
 import { createClient } from '@/lib/supabase/client'
 import { optimizeMultiVehicleRoutes, groupCustomersByLocation, type Customer, type Vehicle as GeoVehicle } from './geoapify-route-optimizer'
+import { binPackingOptimizer } from './bin-packing-optimizer'
+import { planRoutesFirst, assignVehiclesToRoutes, type PlannedRoute } from './route-planner'
 
 export interface Order {
   customerName: string
@@ -39,6 +41,7 @@ export interface VehicleAssignment {
   assignedDrivers?: Driver[]
   routeDistance?: number
   routeDuration?: number
+  startingWeight?: number
 }
 
 // Vehicle pairing configuration - vehicles that always work together
@@ -210,8 +213,8 @@ export function canAssignOrderToVehicle(
     const combinedCapacity = pairedAssignments.reduce((sum, a) => sum + a.capacity, 0)
     const combinedWeight = pairedAssignments.reduce((sum, a) => sum + a.totalWeight, 0)
     
-    // Check if order fits in combined capacity
-    if (combinedWeight + orderWeight > combinedCapacity) {
+    // Check if order fits in combined capacity (enforce 95% limit)
+    if (combinedWeight + orderWeight > combinedCapacity * 0.95) {
       return false
     }
     
@@ -229,8 +232,11 @@ export function canAssignOrderToVehicle(
       }
     }
   } else {
-    // For non-paired vehicles, check individual capacity
-    if (assignment.totalWeight + orderWeight > assignment.capacity) {
+    // For non-paired vehicles, check individual capacity (enforce 95% limit)
+    // CRITICAL: Use max capacity, not current totalWeight
+    const maxAllowedWeight = assignment.capacity * 0.95
+    if (assignment.totalWeight + orderWeight > maxAllowedWeight) {
+      console.log(`  ✗ ${order.customerName} exceeds capacity: ${Math.round(assignment.totalWeight + orderWeight)}kg > ${Math.round(maxAllowedWeight)}kg (${assignment.vehicle.registration_number})`)
       return false
     }
   }
@@ -946,12 +952,23 @@ function calculateRouteMetrics(
 /**
  * Enhanced vehicle assignment with GEOGRAPHIC CLUSTERING
  * PRIORITY: 1) Geographic proximity 2) Vehicle restrictions 3) Capacity optimization
+ * When items are already assigned, uses vehicle's current weight as starting point
  */
 export async function assignVehiclesWithDrivers(
   orders: Order[],
   vehicles: Vehicle[],
-  requiredDriversPerVehicle: number = 1
+  requiredDriversPerVehicle: number = 1,
+  maxOrdersToAssign?: number
 ): Promise<VehicleAssignment[]> {
+  // ═══════════════════════════════════════════════════════════════
+  // NEW APPROACH: ROUTE-FIRST PLANNING
+  // 1. Map locations → 2. Group regions → 3. Plan routes → 4. Assign vehicles
+  // ═══════════════════════════════════════════════════════════════
+  
+  console.log(`\n╔═══════════════════════════════════════════════════════════╗`)
+  console.log(`║           ROUTE-FIRST VEHICLE ASSIGNMENT                  ║`)
+  console.log(`╚═══════════════════════════════════════════════════════════╝`)
+  
   // Fetch available drivers
   const availableDrivers = await fetchAvailableDrivers()
   console.log(`Fetched ${availableDrivers.length} available drivers for assignment`)
@@ -970,47 +987,173 @@ export async function assignVehiclesWithDrivers(
       capacity,
       utilization: capacity > 0 ? (existingWeight / capacity) * 100 : 0,
       destinationGroup: undefined,
-      assignedDrivers: []
+      assignedDrivers: [],
+      startingWeight: existingWeight
     }
   })
   
-  // STEP 0: CLUSTER ALL ORDERS BY 25KM PROXIMITY (tighter grouping)
-  console.log(`\n=== STEP 0: GEOGRAPHIC CLUSTERING (25km radius) ===`)
+  // ROUTE-FIRST PLANNING: Plan optimal routes before assigning vehicles
+  const plannedRoutes = await planRoutesFirst(orders, vehicles, {
+    maxRegionDistance: 100, // Merge regions within 100km (tighter grouping)
+    targetRouteWeight: 2500 // Target 2500kg per route (smaller routes = more vehicles)
+  })
+  
+  // Assign vehicles to planned routes
+  const routeVehicleMap = assignVehiclesToRoutes(plannedRoutes, vehicles)
+  
+  // Apply planned routes to assignments
+  console.log(`\n=== APPLYING PLANNED ROUTES TO VEHICLES ===`)
+  for (const [route, vehicle] of routeVehicleMap) {
+    const assignment = assignments.find(a => a.vehicle.id === vehicle.id)
+    if (assignment) {
+      assignment.assignedOrders = route.orders
+      assignment.totalWeight = route.totalWeight
+      assignment.utilization = (route.totalWeight / assignment.capacity) * 100
+      assignment.destinationGroup = route.region
+      console.log(`  ✓ ${vehicle.registration_number}: ${route.name} (${route.orders.length} orders, ${Math.round(assignment.utilization)}%)`)  
+    }
+  }
+  
+  // Track unassigned orders from route planning
+  const assignedOrders = new Set(Array.from(routeVehicleMap.keys()).flatMap(r => r.orders))
+  let unassignedOrders = orders.filter(o => !assignedOrders.has(o))
+  console.log(`Unassigned after route planning: ${unassignedOrders.length} orders`)
+  
+  console.log(`\n=== VEHICLE CAPACITY SUMMARY ===`)
+  const activeVehicles = assignments.filter(a => a.assignedOrders.length > 0)
+  console.log(`Active vehicles: ${activeVehicles.length}/${assignments.length}`)
+  for (const assignment of activeVehicles) {
+    console.log(`  ${assignment.vehicle.registration_number}: ${assignment.assignedOrders.length} orders, ${Math.round(assignment.totalWeight)}kg, ${Math.round(assignment.utilization)}% full`)
+  }
+  
+  // Skip all old logic - route-first planning already handled everything
+  console.log(`\n=== SKIPPING OLD ASSIGNMENT LOGIC (Using Route-First Results) ===`)
+  
+  // Assign drivers to vehicles with orders
+  console.log(`\n=== DRIVER ASSIGNMENT ===`)
+  
+  // Sort assignments to ensure CN30435 is processed before Mission Trailer
+  const sortedAssignments = [...assignments].sort((a, b) => {
+    if (a.vehicle.registration_number === 'CN30435') return -1
+    if (b.vehicle.registration_number === 'CN30435') return 1
+    if (a.vehicle.registration_number === 'Mission Trailer') return 1
+    if (b.vehicle.registration_number === 'Mission Trailer') return -1
+    return 0
+  })
+  
+  for (const vehicle of sortedAssignments) {
+    if (vehicle.assignedOrders.length > 0 && vehicle.assignedDrivers!.length === 0 && remainingDrivers.length > 0) {
+      const { assignedDrivers, remainingDrivers: newRemainingDrivers } = assignDriversToVehicle(
+        vehicle.vehicle,
+        remainingDrivers,
+        requiredDriversPerVehicle,
+        assignments
+      )
+      vehicle.assignedDrivers = assignedDrivers
+      
+      if (vehicle.vehicle.registration_number !== 'Mission Trailer') {
+        remainingDrivers = newRemainingDrivers
+      }
+      
+      if (assignedDrivers.length > 0) {
+        console.log(`${vehicle.vehicle.registration_number}: ${assignedDrivers.map(d => `${d.first_name} ${d.surname}`).join(', ')}`)
+      }
+    }
+  }
+  
+  // Optimize route sequences
+  console.log('\n=== ROUTE SEQUENCE OPTIMIZATION ===')
+  const DEPOT_LAT = -33.9249
+  const DEPOT_LON = 18.6369
+  
+  for (const assignment of assignments) {
+    if (assignment.assignedOrders.length > 0) {
+      console.log(`${assignment.vehicle.registration_number}: ${assignment.assignedOrders.length} stops`)
+      
+      const result = await optimizeRouteWithDepot(
+        assignment.assignedOrders,
+        DEPOT_LAT,
+        DEPOT_LON
+      )
+      
+      assignment.assignedOrders = result.orders
+      assignment.routeDistance = result.distance
+      assignment.routeDuration = result.duration
+      
+      if (result.geometry) {
+        (assignment as any).routeGeometry = result.geometry
+      }
+    }
+  }
+  
+  return assignments
+}
+
+// OLD CODE BELOW - DISABLED
+/*
+  // Apply order limit if specified
+  if (maxOrdersToAssign && maxOrdersToAssign > 0) {
+    console.log(`\n⚠️ LIMITING ASSIGNMENT TO ${maxOrdersToAssign} ORDERS`)
+    sortedOrders = sortedOrders.slice(0, maxOrdersToAssign)
+  }
+  
+  // STEP 0: SMART GEOGRAPHIC CLUSTERING (Optimize for fewer vehicles)
+  console.log(`\n=== STEP 0: SMART GEOGRAPHIC CLUSTERING ===`)
   const ordersWithCoords = orders.filter(o => o.latitude && o.longitude)
   const clusters: Order[][] = []
   const clustered = new Set<Order>()
+  
+  // Calculate total weight to determine optimal cluster size
+  const totalWeight = ordersWithCoords.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
+  const avgVehicleCapacity = vehicles.reduce((sum, v) => sum + v.load_capacity, 0) / vehicles.length
+  const estimatedVehiclesNeeded = Math.ceil(totalWeight / (avgVehicleCapacity * 0.85))
+  
+  console.log(`Total weight: ${Math.round(totalWeight)}kg, Avg vehicle capacity: ${Math.round(avgVehicleCapacity)}kg`)
+  console.log(`Estimated vehicles needed: ${estimatedVehiclesNeeded}`)
+  
+  // Use adaptive clustering radius based on order density
+  const INITIAL_RADIUS = 40 // Start with 40km radius for better consolidation
   
   for (const order of ordersWithCoords) {
     if (clustered.has(order)) continue
     
     const cluster: Order[] = [order]
     clustered.add(order)
+    let clusterWeight = order.totalWeight || 0
     
-    // Find all orders within 25km of ANY order in the current cluster
+    // Build cluster until it reaches ~80% of average vehicle capacity or radius limit
+    const targetWeight = avgVehicleCapacity * 0.80
+    
+    // Find all orders within radius of cluster centroid
     let addedToCluster = true
-    while (addedToCluster) {
+    while (addedToCluster && clusterWeight < targetWeight) {
       addedToCluster = false
+      const centroid = calculateCentroid(cluster)
+      if (!centroid) break
+      
+      // Find nearest unclustered order to centroid
+      let nearestOrder: Order | null = null
+      let minDist = Infinity
+      
       for (const other of ordersWithCoords) {
         if (clustered.has(other)) continue
         
-        // Check distance to ALL orders in cluster
-        let withinRange = false
-        for (const clusterOrder of cluster) {
-          const dist = haversineDistance(
-            clusterOrder.latitude!, clusterOrder.longitude!,
-            other.latitude!, other.longitude!
-          )
-          if (dist <= 25) {
-            withinRange = true
-            break
-          }
-        }
+        const dist = haversineDistance(
+          centroid.lat, centroid.lon,
+          other.latitude!, other.longitude!
+        )
         
-        if (withinRange) {
-          cluster.push(other)
-          clustered.add(other)
-          addedToCluster = true
+        if (dist <= INITIAL_RADIUS && dist < minDist) {
+          minDist = dist
+          nearestOrder = other
         }
+      }
+      
+      if (nearestOrder) {
+        cluster.push(nearestOrder)
+        clustered.add(nearestOrder)
+        clusterWeight += nearestOrder.totalWeight || 0
+        addedToCluster = true
       }
     }
     
@@ -1022,6 +1165,7 @@ export async function assignVehiclesWithDrivers(
   for (let idx = 0; idx < clusters.length; idx++) {
     const cluster = clusters[idx]
     const centroid = calculateCentroid(cluster)
+    const clusterWeight = cluster.reduce((s, o) => s + (o.totalWeight || 0), 0)
     let zoneName = `Zone ${idx + 1}`
     
     if (centroid && mapboxToken) {
@@ -1044,17 +1188,21 @@ export async function assignVehiclesWithDrivers(
       ;(order as any).locationGroup = zoneName
     })
     
-    console.log(`Cluster ${idx + 1}: ${zoneName} (${cluster.length} orders, ${Math.round(cluster.reduce((s, o) => s + (o.totalWeight || 0), 0))}kg)`)
+    const vehiclesNeeded = Math.ceil(clusterWeight / (avgVehicleCapacity * 0.85))
+    console.log(`Cluster ${idx + 1}: ${zoneName} (${cluster.length} orders, ${Math.round(clusterWeight)}kg, ~${vehiclesNeeded} vehicle${vehiclesNeeded > 1 ? 's' : ''})`)
   }
   
-  console.log(`Created ${clusters.length} geographic clusters from ${ordersWithCoords.length} orders`)
+  console.log(`\nCreated ${clusters.length} optimized clusters (target: ${estimatedVehiclesNeeded} vehicles)`)
+  console.log(`Clustering strategy: Build clusters up to ${Math.round(avgVehicleCapacity * 0.80)}kg within ${INITIAL_RADIUS}km radius`)
   
   // Sort orders by priority
-  const sortedOrders = [...orders].sort((a, b) => {
+  let sortedOrders = [...orders].sort((a, b) => {
     const priorityA = (a as any).priority || 0
     const priorityB = (b as any).priority || 0
     return priorityB - priorityA
   })
+  
+
   
   // STEP 1: Filter compatible vehicles for each order
   console.log(`\n=== STEP 1: FILTER COMPATIBLE VEHICLES ===`)
@@ -1073,8 +1221,9 @@ export async function assignVehiclesWithDrivers(
       const restrictions = (vehicle.restrictions || '').toLowerCase()
       const customerName = (order.customerName || '').toLowerCase()
       
-      // Check capacity
-      if (orderWeight > assignment.capacity) continue
+      // Check capacity - use remaining capacity after starting weight
+      const remainingCapacity = assignment.capacity - (assignment.startingWeight || 0)
+      if (orderWeight > remainingCapacity) continue
       
       // Check customer restrictions
       const noPattern = /no\s+(\w+)/gi
@@ -1154,8 +1303,8 @@ export async function assignVehiclesWithDrivers(
   console.log(`Separated: ${drumOrders.length} drum orders, ${customerRestrictedOrders.length} customer-restricted, ${unrestrictedOrders.length} unrestricted`)
   
   // Assign drum orders to vehicles that accept drums
-  console.log(`\n=== ASSIGNING DRUM ORDERS ===`)
-  const unassignedOrders: Order[] = []
+  console.log(`\n=== ASSIGNING REMAINING DRUM ORDERS ===`)
+  const stillUnassigned: Order[] = []
   
   for (const order of drumOrders) {
     const orderWeight = order.totalWeight || (order.drums || 0) * 200
@@ -1168,19 +1317,25 @@ export async function assignVehiclesWithDrivers(
       .sort((a, b) => b.capacity - a.capacity)
     
     for (const vehicle of drumVehicles) {
-      if (vehicle.totalWeight + orderWeight <= vehicle.capacity) {
+      const maxAllowed = vehicle.capacity * 0.95
+      const newWeight = vehicle.totalWeight + orderWeight
+      
+      // CRITICAL: Enforce capacity limit strictly
+      if (newWeight <= maxAllowed && canAssignOrderToVehicle(order, vehicle, assignments)) {
         vehicle.assignedOrders.push(order)
-        vehicle.totalWeight += orderWeight
+        vehicle.totalWeight = newWeight
         vehicle.utilization = (vehicle.totalWeight / vehicle.capacity) * 100
         vehicle.destinationGroup = zone
-        console.log(`  ✓ ${order.customerName} → ${vehicle.vehicle.registration_number} [DRUMS: ${order.drums}] (${orderWeight}kg)`)
+        console.log(`  ✓ ${order.customerName} → ${vehicle.vehicle.registration_number} [DRUMS: ${order.drums}] (${orderWeight}kg, ${Math.round(vehicle.utilization)}% full)`)
         assigned = true
         break
+      } else {
+        console.log(`  ✗ ${order.customerName} would exceed ${vehicle.vehicle.registration_number} capacity: ${Math.round(newWeight)}kg > ${Math.round(maxAllowed)}kg`)
       }
     }
     
     if (!assigned) {
-      unassignedOrders.push(order)
+      stillUnassigned.push(order)
       console.log(`  ✗ ${order.customerName} - No vehicle accepts ${order.drums} drums`)
     }
   }
@@ -1197,25 +1352,58 @@ export async function assignVehiclesWithDrivers(
       .sort((a, b) => b.capacity - a.capacity)
     
     for (const vehicle of compatibleVehicles) {
-      if (vehicle.totalWeight + orderWeight <= vehicle.capacity) {
+      const maxAllowed = vehicle.capacity * 0.95
+      const newWeight = vehicle.totalWeight + orderWeight
+      
+      // CRITICAL: Enforce capacity limit strictly
+      if (newWeight <= maxAllowed && canAssignOrderToVehicle(order, vehicle, assignments)) {
         vehicle.assignedOrders.push(order)
-        vehicle.totalWeight += orderWeight
+        vehicle.totalWeight = newWeight
         vehicle.utilization = (vehicle.totalWeight / vehicle.capacity) * 100
         vehicle.destinationGroup = zone
-        console.log(`  ✓ ${order.customerName} → ${vehicle.vehicle.registration_number} (${orderWeight}kg)`)
+        console.log(`  ✓ ${order.customerName} → ${vehicle.vehicle.registration_number} (${orderWeight}kg, ${Math.round(vehicle.utilization)}% full)`)
         assigned = true
         break
+      } else {
+        console.log(`  ✗ ${order.customerName} would exceed ${vehicle.vehicle.registration_number} capacity: ${Math.round(newWeight)}kg > ${Math.round(maxAllowed)}kg`)
       }
     }
     
     if (!assigned) {
-      unassignedOrders.push(order)
+      stillUnassigned.push(order)
       console.log(`  ✗ ${order.customerName} - No compatible vehicle`)
     }
   }
   
-  // STEP 2B: CLARKE-WRIGHT SAVINGS ALGORITHM (VRP Optimization)
-  console.log(`\n=== STEP 2B: CLARKE-WRIGHT SAVINGS ALGORITHM (Minimize Vehicles) ===`)
+  // Update unassignedOrders with stillUnassigned
+  unassignedOrders = stillUnassigned
+  
+  // STEP 2B: BIN PACKING OPTIMIZATION (Minimize Vehicles)
+  console.log(`\n=== STEP 2B: BIN PACKING OPTIMIZATION (Minimize Vehicles) ===`)
+  
+  // Use bin packing optimizer for better vehicle utilization
+  const binPackedAssignments = binPackingOptimizer(unrestrictedOrders, vehicles, 0.85)
+  
+  // Apply bin packing results to assignments
+  for (let i = 0; i < assignments.length; i++) {
+    const binPacked = binPackedAssignments[i]
+    if (binPacked.assignedOrders.length > 0) {
+      assignments[i].assignedOrders = binPacked.assignedOrders
+      assignments[i].totalWeight = binPacked.totalWeight
+      assignments[i].utilization = binPacked.utilization
+      assignments[i].destinationGroup = binPacked.destinationGroup
+    }
+  }
+  
+  // Remove assigned orders from unassigned list
+  const binPackedOrders = new Set(binPackedAssignments.flatMap(a => a.assignedOrders))
+  const remainingAfterBinPacking = unrestrictedOrders.filter(o => !binPackedOrders.has(o))
+  unassignedOrders.push(...remainingAfterBinPacking)
+  
+  console.log(`Bin packing complete: ${binPackedAssignments.filter(a => a.assignedOrders.length > 0).length} vehicles used`)
+  
+  // FALLBACK: CLARKE-WRIGHT SAVINGS ALGORITHM (if bin packing leaves orders)
+  console.log(`\n=== FALLBACK: CLARKE-WRIGHT FOR REMAINING ORDERS ===`)
   
   const remainingUnassigned: Order[] = []
   
@@ -1312,7 +1500,8 @@ export async function assignVehiclesWithDrivers(
       if (!bestVehicle) {
         for (const vehicle of assignments) {
           if (vehicle.assignedOrders.length > 0) continue // Skip used vehicles
-          if (vehicle.capacity * 0.95 < totalWeight) continue // Skip insufficient capacity
+          const remainingCapacity = vehicle.capacity * 0.95 - vehicle.totalWeight
+          if (remainingCapacity < totalWeight) continue // Skip insufficient capacity
           
           // Check restrictions for both orders
           if (!canAssignOrderToVehicle(saving.orderI, vehicle, assignments)) continue
@@ -1416,7 +1605,7 @@ export async function assignVehiclesWithDrivers(
       // Find available vehicle that can handle all orders for this destination
       const availableVehicle = assignments.find(v => 
         v.assignedOrders.length === 0 && 
-        v.capacity * 0.95 >= totalWeight &&
+        (v.capacity * 0.95 - v.totalWeight) >= totalWeight &&
         destOrders.every(order => canAssignOrderToVehicle(order, v, assignments))
       )
       
@@ -1464,7 +1653,7 @@ export async function assignVehiclesWithDrivers(
           if (!assigned) {
             const newVehicle = assignments.find(v => 
               v.assignedOrders.length === 0 && 
-              v.capacity * 0.95 >= orderWeight &&
+              (v.capacity * 0.95 - v.totalWeight) >= orderWeight &&
               canAssignOrderToVehicle(order, v, assignments)
             )
             
@@ -1489,7 +1678,7 @@ export async function assignVehiclesWithDrivers(
     for (const order of ordersWithoutCoords) {
       const orderWeight = order.totalWeight || (order.drums || 0) * 200
       const availableVehicle = assignments.find(v => 
-        v.capacity * 0.95 - v.totalWeight >= orderWeight &&
+        (v.capacity * 0.95 - v.totalWeight) >= orderWeight &&
         canAssignOrderToVehicle(order, v, assignments)
       )
       
@@ -1839,19 +2028,21 @@ export async function assignVehiclesWithDrivers(
     }
   }
   
-  // FORCED CONSOLIDATION: Eliminate underutilized vehicles (< 50%)
-  console.log(`\nForced consolidation - eliminating underutilized vehicles...`)
+  // SUPER AGGRESSIVE CONSOLIDATION: Eliminate ALL underutilized vehicles (< 70%)
+  console.log(`\n=== SUPER AGGRESSIVE CONSOLIDATION ===`)
+  console.log(`Goal: Merge all vehicles under 70% utilization into fuller vehicles`)
   
   const poorlyUtilizedVehicles = assignments
-    .filter(a => a.assignedOrders.length > 0 && a.utilization < 50)
+    .filter(a => a.assignedOrders.length > 0 && a.utilization < 70)
     .sort((a, b) => a.utilization - b.utilization) // Least utilized first
   
   const wellUtilizedVehicles = assignments
-    .filter(a => a.assignedOrders.length > 0 && a.utilization >= 50)
+    .filter(a => a.assignedOrders.length > 0 && a.utilization >= 70)
     .sort((a, b) => a.capacity - b.capacity) // Largest capacity first
   
-  console.log(`Found ${poorlyUtilizedVehicles.length} underutilized vehicles to consolidate`)
-  console.log(`Target vehicles: ${wellUtilizedVehicles.length} well-utilized vehicles`)
+  console.log(`Underutilized vehicles (<70%): ${poorlyUtilizedVehicles.length}`)
+  poorlyUtilizedVehicles.forEach(v => console.log(`  ${v.vehicle.registration_number}: ${Math.round(v.utilization)}%`))
+  console.log(`Well-utilized vehicles (≥70%): ${wellUtilizedVehicles.length}`)
   
   for (const sourceVehicle of poorlyUtilizedVehicles) {
     console.log(`\nConsolidating ${sourceVehicle.vehicle.registration_number} (${Math.round(sourceVehicle.utilization)}% full, ${sourceVehicle.assignedOrders.length} orders)`)
@@ -1876,7 +2067,7 @@ export async function assignVehiclesWithDrivers(
         
         // Check capacity and restrictions
         if (remainingCapacity >= orderWeight && canAssignOrderToVehicle(order, targetVehicle, assignments)) {
-          // For consolidation, allow longer distances (up to 200km)
+          // For super aggressive consolidation, allow even longer distances (up to 300km)
           let canMove = true
           
           if (order.latitude && order.longitude && targetVehicle.assignedOrders.length > 0) {
@@ -1885,7 +2076,7 @@ export async function assignVehiclesWithDrivers(
               .map(o => haversineDistance(order.latitude!, order.longitude!, o.latitude!, o.longitude!))
             
             const minDistance = Math.min(...distances)
-            canMove = minDistance <= 200 // Allow up to 200km for forced consolidation
+            canMove = minDistance <= 300 // Allow up to 300km for super aggressive consolidation
           }
           
           if (canMove) {
@@ -1923,8 +2114,7 @@ export async function assignVehiclesWithDrivers(
   }
   
   // Count active vehicles after consolidation
-  const activeVehicles = assignments.filter(a => a.assignedOrders.length > 0)
-  console.log(`\nConsolidation complete: ${activeVehicles.length} vehicles in use`)
+  console.log(`\nConsolidation complete: ${assignments.filter(a => a.assignedOrders.length > 0).length} vehicles in use`)
   
   // STEP 2E: POST-OPTIMIZATION - Handle any remaining scattered orders
   console.log(`\n=== STEP 2E: POST-OPTIMIZATION (Final cleanup) ===`)
@@ -2095,7 +2285,7 @@ export async function assignVehiclesWithDrivers(
         // Check if all orders can fit
         return scatteredOrders.every(order => canAssignOrderToVehicle(order, a, assignments))
       })
-      .filter(a => a.capacity >= totalWeight)
+      .filter(a => (a.capacity * 0.95 - a.totalWeight) >= totalWeight)
       .sort((a, b) => a.capacity - b.capacity) // Smallest first
     
     if (suitableVehicles.length > 0) {
@@ -2162,10 +2352,8 @@ export async function assignVehiclesWithDrivers(
     })
   }
   
-  // Schedule unassigned orders for next day
-  if (unassignedOrders.length > 0) {
-    await scheduleOrdersForNextDays(unassignedOrders)
-  }
+  // DON'T schedule orders here - they'll be handled by the calling function
+  // This function only assigns to vehicles, scheduling happens at the page level
   
   // Set destination groups based on order location_group (already clustered)
   console.log(`\n=== SETTING DESTINATION REGIONS ===`)
@@ -2212,8 +2400,7 @@ export async function assignVehiclesWithDrivers(
     }
   }
   
-  return assignments
-}
+*/
 
 /**
  * Schedule unassigned orders for next day ONLY

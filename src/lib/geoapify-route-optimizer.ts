@@ -87,14 +87,17 @@ export async function optimizeMultiVehicleRoutes(
   avoid.setType('tolls')
   planner.addAvoid(avoid)
   
-  // Add vehicles as agents
+  // Add vehicles as agents with STRICT capacity limits
   vehicles.forEach(vehicle => {
+    // Skip vehicles with no capacity
+    if (!vehicle.capacity || vehicle.capacity <= 0) return
+    
     console.log(`Adding agent: ${vehicle.id}, capacity: ${vehicle.capacity}, start: [${vehicle.startLocation.lng}, ${vehicle.startLocation.lat}]`)
     const agent = new Agent()
       .setId(vehicle.id)
       .setStartLocation(vehicle.startLocation.lng, vehicle.startLocation.lat)
       .setEndLocation(depot.lng, depot.lat)
-      .setPickupCapacity(vehicle.capacity)
+      .setPickupCapacity(vehicle.capacity) // Strict capacity limit
     
     planner.addAgent(agent)
   })
