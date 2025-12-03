@@ -19,7 +19,6 @@ import { toast } from 'sonner'
 import DriverDashboardClean from '@/components/driver-dashboard-clean'
 import { DashboardProvider } from '@/context/dashboard-context'
 import DriverPerformanceDashboard from '@/components/dashboard/DriverPerformanceDashboard'
-import ExecutiveDashboardEPS from '@/components/dashboard/ExecutiveDashboardEPS'
 import { MaterialCharts } from '@/components/material-charts'
 import { epsApi, BiWeeklyCategory, DailyStats } from '@/lib/eps-api'
 
@@ -999,9 +998,6 @@ export default function Drivers() {
                                 <ViolationsChart />
                                 <SpeedingViolationsChart />
                             </div>
-                            
-                            {/* Full Executive Dashboard */}
-                            <ExecutiveDashboardEPS />
                         </div>
                     )}
 

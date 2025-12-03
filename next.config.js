@@ -7,10 +7,7 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  experimental: {
-    webpackMemoryOptimizations: true,
-    optimizePackageImports: ['lucide-react'],
-  },
+
   webpack: (config, { dev, isServer }) => {
     config.optimization = {
       ...config.optimization,
