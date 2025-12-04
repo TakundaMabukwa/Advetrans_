@@ -46,7 +46,7 @@ export async function sendWelcomeEmail(options: any) {
             <p style="margin: 0; font-size: 14px; color: #856404;"><strong>Security Notice:</strong> Please change your password after your first login for security purposes.</p>
           </div>
           <div style="text-align: center; margin: 30px 0;">
-            <a href="http://164.90.225.70:3000" style="background: linear-gradient(135deg, #1A245E, #C7322F); color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Access Login Site</a>
+            <a href="http://138.68.81.223" style="background: linear-gradient(135deg, #1A245E, #C7322F); color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Access Login Site</a>
           </div>
         </div>
         <div style="background: linear-gradient(135deg, #1A245E 0%, #1A245E/70 50%, #C7322F/70 100%); padding: 20px; text-align: center;">

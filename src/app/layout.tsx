@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "EPS Breakdown Dashboard",
-  description: "Breakdown Dashboard for EPS Courier Services",
+  title: "Advetrans",
+  description: "Advetrans",
   authors: [{ name: "Kilig Mukelani", url: "" }],
 };
 
@@ -31,6 +31,10 @@ export default function RootLayout({
         <link
           href="https://api.mapbox.com/mapbox-gl-js/v3.14.0/mapbox-gl.css"
           rel="stylesheet"
+        />
+        <link
+          rel="icon"
+          href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='70' font-size='80' font-family='cursive'%3EA%3C/text%3E%3C/svg%3E"
         />
       </head>
       <body
