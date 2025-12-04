@@ -12,6 +12,10 @@ const nextConfig = {
     config.optimization = {
       ...config.optimization,
       minimize: !dev,
+      splitChunks: {
+        chunks: 'all',
+        maxSize: 244000,
+      },
     };
     
     if (dev) {
@@ -29,7 +33,9 @@ const nextConfig = {
       tls: false,
     };
     
-
+    // Memory optimization
+    config.cache = false;
+    config.stats = 'errors-only';
     
     return config
   }
