@@ -26,14 +26,16 @@ export async function sendWelcomeEmail(options: any) {
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #F5F6FA; border-radius: 12px; overflow: hidden;">
         <div style="width: 100%; height: 8px; background: linear-gradient(to right, #1A245E, #C7322F);"></div>
         <div style="padding: 30px 20px; text-align: center;">
-          <img src="https://datatim.co.za/wp-content/uploads/2017/05/eps-logo.jpg" alt="EPS Courier Services" style="width: 80px; height: 80px; margin-bottom: 15px;">
-          <h1 style="color: #1A245E; font-size: 28px; margin: 0 0 5px 0;">EPS Courier Services</h1>
+          <div style="width: 120px; height: 80px; margin: 0 auto 15px auto; background: linear-gradient(135deg, #1A245E, #C7322F); border-radius: 12px; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 12px rgba(26, 36, 94, 0.3);">
+            <span style="color: white; font-size: 18px; font-weight: bold; letter-spacing: 2px; text-shadow: 0 2px 4px rgba(0,0,0,0.3);">ADVETRANS</span>
+          </div>
+          <h1 style="color: #1A245E; font-size: 28px; margin: 0 0 5px 0;">ADVETRANS Courier Services</h1>
           <p style="color: #666; font-size: 14px; margin: 0;">Reliable. Professional. Nationwide.</p>
           <h2 style="color: #1A245E; font-size: 20px; margin: 20px 0 0 0;">Welcome to Your Account</h2>
         </div>
         <div style="padding: 30px 20px; background-color: white;">
           <p style="color: #333; font-size: 16px;"><strong>Hello,</strong></p>
-          <p style="color: #333; font-size: 16px;">Your EPS account has been created successfully. Please use the credentials below to access the system:</p>
+          <p style="color: #333; font-size: 16px;">Your ADVETRANS account has been created successfully. Please use the credentials below to access the system:</p>
           <div style="background: #F5F6FA; padding: 20px; margin: 20px 0; border-radius: 8px; border-left: 4px solid #1A245E;">
             <p style="margin: 8px 0; color: #333;"><strong>Email:</strong> ${email}</p>
             <p style="margin: 8px 0; color: #333;"><strong>Password:</strong> ${password}</p>
@@ -49,8 +51,8 @@ export async function sendWelcomeEmail(options: any) {
         </div>
         <div style="background: linear-gradient(135deg, #1A245E 0%, #1A245E/70 50%, #C7322F/70 100%); padding: 20px; text-align: center;">
           <p style="font-size: 12px; color: white; margin: 0;">
-            This is an automated message from EPS Courier Services.<br>
-            © ${new Date().getFullYear()} EPS Courier Services. All rights reserved.
+            This is an automated message from ADVETRANS Courier Services.<br>
+            © ${new Date().getFullYear()} ADVETRANS Courier Services. All rights reserved.
           </p>
         </div>
       </div>
@@ -64,7 +66,7 @@ export async function sendWelcomeEmail(options: any) {
         email: email
       },
       email: {
-        subject: 'Welcome to EPS Courier Services - Your Account Credentials',
+        subject: 'Welcome to ADVETRANS Courier Services - Your Account Credentials',
         html: emailHTML
       }
     });
@@ -144,7 +146,7 @@ export async function sendWelcomeSMS(options: any) {
         number: formattedPhone
       },
       sms: {
-        message: `EPS Courier Services - Login: ${email} Password: ${password} Role: ${role}`
+        message: `ADVETRANS Courier Services - Login: ${email} Password: ${password} Role: ${role}`
       }
     });
     
