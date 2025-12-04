@@ -377,11 +377,12 @@ export default function LoadPlanPage() {
 
       console.log('Loading assignments from database for dates:', { today, tomorrow, dayAfter })
 
-      // Get all orders scheduled for 3-day period
+      // Get all orders scheduled for 3-day period (including in-trip)
       const { data: assignedOrders } = await supabase
         .from('pending_orders')
         .select('*')
         .in('scheduled_date', [today, tomorrow, dayAfter])
+        .in('status', ['assigned', 'in-trip'])
         .not('assigned_vehicle_id', 'is', null)
 
       console.log('Found assigned orders:', assignedOrders?.length || 0)
@@ -1640,14 +1641,26 @@ export default function LoadPlanPage() {
         })
       }
 
-      // Get ONLY truly unassigned orders (never assigned to any vehicle)
+      // FIXED: Better order filtering to prevent valid orders from being excluded
       let remainingOrders = unassignedOrders.filter(o => {
         // Exclude collection orders
         const drumsValue = String(o.drums || '').toLowerCase().trim()
-        if (drumsValue === 'collection') return false
+        if (drumsValue === 'collection') {
+          console.log(`Excluding collection order: ${o.customer_name}`)
+          return false
+        }
         
-        // ONLY orders that have NEVER been assigned to a vehicle
-        return o.status === 'unassigned' && !o.assigned_vehicle_id
+        // Include orders that are truly unassigned OR scheduled for today but not assigned to vehicle
+        const isUnassigned = o.status === 'unassigned' && !o.assigned_vehicle_id
+        const isScheduledButNotAssigned = o.scheduled_date === today && !o.assigned_vehicle_id
+        
+        const shouldInclude = isUnassigned || isScheduledButNotAssigned
+        
+        if (!shouldInclude) {
+          console.log(`Excluding already processed order: ${o.customer_name} (status: ${o.status}, vehicle: ${o.assigned_vehicle_id})`)
+        }
+        
+        return shouldInclude
       })
       
       // Separate by scheduled date
@@ -1659,11 +1672,24 @@ export default function LoadPlanPage() {
       console.log(`Existing assignments: ${existingVehicleLoads.size} vehicle-date combinations`)
       console.log(`Filtered out ${unassignedOrders.length - remainingOrders.length} already-processed orders`)
       
-      // Start with today's orders
-      remainingOrders = todayOrders
+      // Check 11am cutoff - don't assign to today after 11am SA time
+      const now = new Date()
+      const saTime = new Date(now.toLocaleString("en-US", {timeZone: "Africa/Johannesburg"}))
+      const currentHour = saTime.getHours()
+      
+      if (currentHour >= 11) {
+        console.log(`After 11am SA time (${currentHour}:00) - skipping today's assignment, going directly to tomorrow`)
+        remainingOrders = [...todayOrders, ...tomorrowOrders]
+        // Skip today's assignment - go directly to tomorrow
+      } else {
+        console.log(`Before 11am SA time (${currentHour}:00) - filling today's capacity first`)
+        const allAvailableOrders = [...todayOrders, ...tomorrowOrders]
+        remainingOrders = allAvailableOrders
+      }
 
-      // Day 1: Assign to TODAY - but only to vehicles with remaining capacity and NOT on trip
-      console.log('Day 1: Starting assignment with available capacity...')
+      // Day 1: Assign to TODAY - only if before 11am SA time
+      if (currentHour < 11) {
+        console.log('Day 1: Starting assignment - filling today\'s capacity first...')
       
       // Get vehicles that are currently on trips today
       const { data: vehiclesOnTrip } = await supabase
@@ -1675,14 +1701,15 @@ export default function LoadPlanPage() {
       const vehicleIdsOnTrip = new Set(vehiclesOnTrip?.map(o => o.assigned_vehicle_id).filter(Boolean) || [])
       console.log(`Vehicles on trip today: ${vehicleIdsOnTrip.size}`, Array.from(vehicleIdsOnTrip))
       
-      // Calculate remaining capacity for each vehicle TODAY
+      // FIXED: Proper capacity calculation with better tracking
       const vehiclesWithCapacityToday = vehiclesData.map(vehicle => {
         const key = `${vehicle.id}-${today}`
         const existing = existingVehicleLoads.get(key)
         const usedCapacity = existing ? existing.currentWeight : 0
         const usedDrums = existing ? existing.orders.reduce((sum, o) => sum + (o.drums || 0), 0) : 0
         const capacity = parseInt(vehicle.load_capacity) || 0
-        const remainingCapacity = capacity - usedCapacity
+        const maxUsableCapacity = capacity * 0.95 // 95% limit
+        const remainingCapacity = maxUsableCapacity - usedCapacity
         const isOnTrip = vehicleIdsOnTrip.has(vehicle.id)
         
         // Get drum capacity from vehicle type
@@ -1707,16 +1734,22 @@ export default function LoadPlanPage() {
         const drumCapacity = vehicleType ? RATE_CARD_SYSTEM[vehicleType].drum_capacity : 50
         const remainingDrums = drumCapacity - usedDrums
         
+        const hasCapacity = remainingCapacity > 0 && remainingDrums > 0 && !isOnTrip
+        
+        if (!hasCapacity && remainingCapacity <= 0) {
+          console.log(`Vehicle ${vehicle.registration_number} at capacity: ${usedCapacity}kg/${capacity}kg (${((usedCapacity/capacity)*100).toFixed(1)}% full)`)
+        }
+        
         return {
           ...vehicle,
-          load_capacity: remainingCapacity, // Use remaining capacity as starting point
+          load_capacity: capacity, // Keep original capacity
           originalCapacity: capacity,
-          remainingCapacity,
+          remainingCapacity: Math.max(0, remainingCapacity), // Ensure non-negative
           usedCapacity,
           drumCapacity,
-          remainingDrums,
+          remainingDrums: Math.max(0, remainingDrums),
           usedDrums,
-          hasCapacity: remainingCapacity > 0 && remainingDrums > 0 && !isOnTrip
+          hasCapacity
         }
       }).filter(v => v.hasCapacity)
       
@@ -1835,13 +1868,12 @@ export default function LoadPlanPage() {
       const todayCount = todayAssignments.flatMap(a => a.assignedOrders).length
       totalAssignedCount += todayCount
       allDayAssignments.today = todayAssignments
-      const finalTodayCount = todayAssignments.reduce((sum, a) => sum + a.assignedOrders.length, 0)
-      console.log(`Day 1: Assigned ${finalTodayCount} orders to ${todayAssignments.filter(a => a.assignedOrders.length > 0).length} vehicles (${todayCount} from Geoapify, ${finalTodayCount - todayCount} from greedy fit)`)
+      console.log(`Day 1: Assigned ${todayCount} orders to ${todayAssignments.filter(a => a.assignedOrders.length > 0).length} vehicles`)
 
-      // Check remaining orders
+      // Check remaining orders - only cascade if today is truly full
       remainingOrders = remainingOrders.filter(o => !todayAssignedIds.has(o.id))
       
-      console.log(`Day 2: ${remainingOrders.length} orders remaining after Day 1`)
+      console.log(`Day 2: ${remainingOrders.length} orders remaining after filling today's capacity`)
       
       // Calculate vehicles with remaining capacity
       const vehiclesWithCapacity = vehiclesWithCapacityToday.filter(v => {
@@ -1852,55 +1884,85 @@ export default function LoadPlanPage() {
       })
       
       console.log(`Vehicles still with capacity: ${vehiclesWithCapacity.length}/${vehiclesWithCapacityToday.length}`)
+      } else {
+        console.log('After 11am SA time - skipping today assignment, all orders go to tomorrow')
+        var vehiclesWithCapacity = []
+      }
       
-      // Try to fit remaining orders into vehicles with capacity
+      // FIXED: Improved greedy fit with proper capacity synchronization
       if (remainingOrders.length > 0 && vehiclesWithCapacity.length > 0) {
         console.log(`Attempting to fit ${remainingOrders.length} remaining orders into ${vehiclesWithCapacity.length} vehicles with capacity...`)
         
-        // Simple greedy assignment: assign each order to first vehicle that can fit it
-        const additionalAssignments = []
+        // Sort orders by weight (heaviest first for better packing)
+        const sortedRemainingOrders = [...remainingOrders].sort((a, b) => {
+          const weightA = a.total_weight || 0
+          const weightB = b.total_weight || 0
+          return weightB - weightA
+        })
+        
         const remainingAfterFit = []
         
-        for (const order of remainingOrders) {
+        for (const order of sortedRemainingOrders) {
+          const orderWeight = order.total_weight || 0
           let assigned = false
-          for (const vehicle of vehiclesWithCapacity) {
-            const existingAssignment = todayAssignments.find(a => a.vehicle.id === vehicle.id)
-            const currentWeight = existingAssignment ? existingAssignment.totalWeight : 0
-            const availableCapacity = vehicle.load_capacity - currentWeight
-            
-            if (order.total_weight <= availableCapacity) {
-              // Can fit this order
-              if (existingAssignment) {
-                existingAssignment.assignedOrders.push(order)
-                existingAssignment.totalWeight += order.total_weight
-                existingAssignment.utilization = (existingAssignment.totalWeight / existingAssignment.capacity) * 100
-              } else {
-                // Create new assignment for this vehicle
-                const newAssignment = {
-                  vehicle: vehicle,
-                  assignedOrders: [order],
-                  totalWeight: order.total_weight,
-                  capacity: vehicle.load_capacity,
-                  utilization: (order.total_weight / vehicle.load_capacity) * 100,
-                  assignedDrivers: [],
-                  destinationGroup: order.location_group || 'Other'
-                }
-                todayAssignments.push(newAssignment)
-                additionalAssignments.push(newAssignment)
+          
+          // Find vehicles with remaining capacity, sorted by best fit
+          const availableVehicles = vehiclesWithCapacity
+            .map(vehicle => {
+              const existingAssignment = todayAssignments.find(a => a.vehicle.id === vehicle.id)
+              const currentWeight = existingAssignment ? existingAssignment.totalWeight : 0
+              const remainingCapacity = vehicle.remainingCapacity - (currentWeight - (existingAssignment?.startingWeight || 0))
+              
+              return {
+                vehicle,
+                existingAssignment,
+                currentWeight,
+                remainingCapacity: Math.max(0, remainingCapacity)
               }
-              todayAssignedIds.add(order.id)
-              assigned = true
-              console.log(`✓ Fitted order ${order.trip_id} (${order.total_weight}kg) into ${vehicle.registration_number}`)
-              break
+            })
+            .filter(v => v.remainingCapacity >= orderWeight)
+            .sort((a, b) => a.remainingCapacity - b.remainingCapacity) // Best fit first
+          
+          if (availableVehicles.length > 0) {
+            const bestVehicle = availableVehicles[0]
+            
+            if (bestVehicle.existingAssignment) {
+              // Add to existing assignment
+              bestVehicle.existingAssignment.assignedOrders.push(order)
+              bestVehicle.existingAssignment.totalWeight += orderWeight
+              bestVehicle.existingAssignment.utilization = (bestVehicle.existingAssignment.totalWeight / bestVehicle.existingAssignment.capacity) * 100
+            } else {
+              // Create new assignment
+              const newAssignment = {
+                vehicle: bestVehicle.vehicle,
+                assignedOrders: [order],
+                totalWeight: orderWeight,
+                capacity: bestVehicle.vehicle.originalCapacity || bestVehicle.vehicle.load_capacity,
+                utilization: (orderWeight / (bestVehicle.vehicle.originalCapacity || bestVehicle.vehicle.load_capacity)) * 100,
+                assignedDrivers: [],
+                destinationGroup: order.location_group || 'Other',
+                startingWeight: 0
+              }
+              todayAssignments.push(newAssignment)
             }
+            
+            todayAssignedIds.add(order.id)
+            assigned = true
+            
+            console.log(`✓ Fitted order ${order.trip_id} (${orderWeight}kg) into ${bestVehicle.vehicle.registration_number} (${bestVehicle.remainingCapacity - orderWeight}kg remaining)`)
           }
+          
           if (!assigned) {
             remainingAfterFit.push(order)
+            console.log(`❌ Could not fit order ${order.trip_id} (${orderWeight}kg) - no vehicle has sufficient capacity`)
           }
         }
         
         // Update database for greedy fit assignments
-        console.log(`Updating database for ${additionalAssignments.length} vehicles with greedy-fit orders...`)
+        const greedyFitAssignments = todayAssignments.filter(a => 
+          a.assignedOrders.some(o => todayAssignedIds.has(o.id) && remainingOrders.some(ro => ro.id === o.id))
+        )
+        console.log(`Updating database for ${greedyFitAssignments.length} vehicles with greedy-fit orders...`)
         
         for (const assignment of todayAssignments) {
           // Find orders that were added by greedy fit (not in original Geoapify assignment)
@@ -1938,21 +2000,19 @@ export default function LoadPlanPage() {
         console.log(`After fitting: ${remainingOrders.length} orders still unassigned`)
       }
       
-      // Only cascade if there are remaining orders AND no vehicles can take them
-      const shouldCascade = remainingOrders.length > 0 && vehiclesWithCapacity.length === 0
+      // Only cascade if there are remaining orders AND (no vehicles can take them OR after 11am)
+      const shouldCascade = remainingOrders.length > 0 && (vehiclesWithCapacity.length === 0 || currentHour >= 11)
       
-      // Add tomorrow's pre-scheduled orders to remaining orders for Day 2
-      const allTomorrowOrders = [...remainingOrders, ...tomorrowOrders]
-      
-      if (shouldCascade || tomorrowOrders.length > 0) {
-        console.log(`Day 2: Processing ${allTomorrowOrders.length} orders for tomorrow (${remainingOrders.length} cascaded + ${tomorrowOrders.length} pre-scheduled)`)
+      // Only use remaining orders for tomorrow (no pre-scheduled orders since they were already tried for today)
+      if (shouldCascade && remainingOrders.length > 0) {
+        console.log(`Day 2: Processing ${remainingOrders.length} orders for tomorrow (today at capacity)`)
       } else if (remainingOrders.length > 0) {
         console.log(`⚠️ ${remainingOrders.length} orders remain but could not fit in available capacity`)
       }
       
-      if (shouldCascade || tomorrowOrders.length > 0) {
-        // Use all tomorrow orders (cascaded + pre-scheduled)
-        remainingOrders = allTomorrowOrders
+      if (shouldCascade && remainingOrders.length > 0) {
+        // Use only remaining orders for tomorrow
+        // remainingOrders already contains what couldn't fit today
         console.log('Day 2: Starting assignment (today at capacity)...')
         
         // Get vehicles on trip tomorrow
@@ -1985,7 +2045,7 @@ export default function LoadPlanPage() {
         
         // Reset all drivers to available for tomorrow's assignment
         await resetAllDriversAvailable()
-        const tomorrowAssignments = await assignVehiclesWithDrivers(allTomorrowOrders, vehiclesWithCapacityTomorrow, 1)
+        const tomorrowAssignments = await assignVehiclesWithDrivers(remainingOrders, vehiclesWithCapacityTomorrow, 1)
         
         // Merge with existing and preserve location_group
         tomorrowAssignments.forEach(assignment => {
@@ -2031,7 +2091,7 @@ export default function LoadPlanPage() {
         console.log(`Day 2: Assigned ${tomorrowCount} orders to ${tomorrowAssignments.filter(a => a.assignedOrders.length > 0).length} vehicles`)
 
         // Day 3: Assign remaining to day after (use all vehicles, max 3 days)
-        remainingOrders = allTomorrowOrders.filter(o => !tomorrowAssignedIds.has(o.id))
+        remainingOrders = remainingOrders.filter(o => !tomorrowAssignedIds.has(o.id))
         console.log(`Day 3: ${remainingOrders.length} orders remaining for day after`)
         if (remainingOrders.length > 0) {
           console.log('Day 3: Starting assignment...')
@@ -2225,7 +2285,7 @@ export default function LoadPlanPage() {
       const remainingCount = remainingOrders.length
 
       let successMessage = `72-Hour Incremental Assignment Complete:\n`
-      successMessage += `• Today: ${finalTodayCount} orders → ${todayVehicles} vehicles\n`
+      successMessage += `• Today: ${actualTodayCount} orders → ${todayVehicles} vehicles\n`
       if (finalTomorrowCount > 0) {
         successMessage += `• Tomorrow: ${finalTomorrowCount} orders → ${tomorrowVehicles} vehicles\n`
       }
@@ -2245,8 +2305,6 @@ export default function LoadPlanPage() {
       setIsProcessingExcel(false)
     }
   }
-
-
 
   const createTripsForAllVehicles = async () => {
     if (todayAssignments.length === 0) return
@@ -3010,8 +3068,7 @@ export default function LoadPlanPage() {
                                     .not('assigned_vehicle_id', 'is', null)
 
                                   if (ordersOnTrip && ordersOnTrip.length > 0) {
-                                    toast.error(`Cannot unassign ${ordersOnTrip.length} order(s) - they are on a trip. Complete or cancel trips first.`)
-                                    return
+                                    toast.info(`${ordersOnTrip.length} order(s) are on trips and will not be unassigned.`)
                                   }
 
                                   if (!assignedNotOnTrip || assignedNotOnTrip.length === 0) {
@@ -3049,7 +3106,11 @@ export default function LoadPlanPage() {
                                   setTomorrowAssignments([])
                                   setDayAfterAssignments([])
                                   await loadPendingOrders()
-                                  toast.success(`${assignedNotOnTrip.length} orders unassigned and ${driverIdsToRelease.size} drivers released`)
+                                  let message = `${assignedNotOnTrip.length} orders unassigned and ${driverIdsToRelease.size} drivers released`
+                                  if (ordersOnTrip && ordersOnTrip.length > 0) {
+                                    message += `. ${ordersOnTrip.length} orders on trips were left unchanged.`
+                                  }
+                                  toast.success(message)
                                 } catch (error) {
                                   toast.error('Failed to unassign orders')
                                 }

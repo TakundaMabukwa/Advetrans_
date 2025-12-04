@@ -207,9 +207,10 @@ export function canAssignOrderToVehicle(
   const restrictions = (assignment.vehicle.restrictions || '').toLowerCase()
   const vehicleReg = assignment.vehicle.registration_number
   
-  // Check drum capacity constraint
+  // FIXED: Better drum capacity checking with logging
   if (hasDrums && assignment.remainingDrums !== undefined) {
     if (drumCount > assignment.remainingDrums) {
+      console.log(`❌ Drum capacity exceeded for ${assignment.vehicle.registration_number}: ${drumCount} drums > ${assignment.remainingDrums} remaining`)
       return false
     }
   }
@@ -225,8 +226,12 @@ export function canAssignOrderToVehicle(
     const combinedCapacity = pairedAssignments.reduce((sum, a) => sum + a.capacity, 0)
     const combinedWeight = pairedAssignments.reduce((sum, a) => sum + a.totalWeight, 0)
     
-    // Check if order fits in combined capacity (enforce 95% limit)
-    if (combinedWeight + orderWeight > combinedCapacity * 0.95) {
+    // FIXED: Better combined capacity checking for paired vehicles
+    const maxCombinedCapacity = combinedCapacity * 0.95
+    const remainingCombinedCapacity = maxCombinedCapacity - combinedWeight
+    
+    if (orderWeight > remainingCombinedCapacity) {
+      console.log(`❌ Paired capacity check failed: ${orderWeight}kg > ${remainingCombinedCapacity.toFixed(0)}kg remaining combined capacity`)
       return false
     }
     
@@ -254,9 +259,13 @@ export function canAssignOrderToVehicle(
       }
     }
   } else {
-    // For non-paired vehicles, check individual capacity (enforce 95% limit)
+    // FIXED: Proper individual capacity checking with better logging
+    const currentWeight = assignment.totalWeight || 0
     const maxAllowedWeight = assignment.capacity * 0.95
-    if (assignment.totalWeight + orderWeight > maxAllowedWeight) {
+    const remainingCapacity = maxAllowedWeight - currentWeight
+    
+    if (orderWeight > remainingCapacity) {
+      console.log(`❌ Capacity check failed for ${assignment.vehicle.registration_number}: ${orderWeight}kg > ${remainingCapacity.toFixed(0)}kg remaining (${currentWeight}kg used / ${maxAllowedWeight.toFixed(0)}kg max)`)
       return false
     }
   }
