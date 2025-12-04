@@ -130,15 +130,16 @@ function VehicleRouteMapComponent({ geometry, stops, vehicleName, depot }: Vehic
               })
             }
             
-            setTimeout(() => {
-              const bounds = new mapboxgl.default.LngLatBounds()
-              validCoords.forEach(coord => bounds.extend([coord[0], coord[1]]))
-              map.current.fitBounds(bounds, { 
-                padding: { top: 80, bottom: 80, left: 80, right: 80 },
-                maxZoom: 14,
-                duration: 1000
-              })
-            }, 100)
+            // Fit bounds to include all stops and route
+            const bounds = new mapboxgl.default.LngLatBounds()
+            validCoords.forEach(coord => bounds.extend([coord[0], coord[1]]))
+            stops.forEach(stop => bounds.extend([stop.lng, stop.lat]))
+            bounds.extend([depot.lng, depot.lat])
+            
+            map.current.fitBounds(bounds, { 
+              padding: { top: 50, bottom: 50, left: 50, right: 50 },
+              maxZoom: 12
+            })
             
             setRouteStatus(`${validCoords.length} points`)
           }
@@ -146,21 +147,31 @@ function VehicleRouteMapComponent({ geometry, stops, vehicleName, depot }: Vehic
           setRouteStatus('No route available')
         }
 
-        new mapboxgl.default.Marker({ color: '#10b981' })
-          .setLngLat([depot.lng, depot.lat])
-          .setPopup(new mapboxgl.default.Popup().setHTML('<strong>Depot</strong>'))
-          .addTo(map.current)
-
-        stops.forEach((stop, idx) => {
-          const el = document.createElement('div')
-          el.style.cssText = 'background:#ef4444;width:30px;height:30px;border-radius:50%;border:2px solid white;display:flex;align-items:center;justify-content:center;color:white;font-weight:bold;font-size:12px;'
-          el.textContent = (idx + 1).toString()
-
-          new mapboxgl.default.Marker(el)
-            .setLngLat([stop.lng, stop.lat])
-            .setPopup(new mapboxgl.default.Popup().setHTML(`<strong>Stop ${idx + 1}</strong><br/>${stop.name}`))
+        // Add depot marker
+        setTimeout(() => {
+          const depotEl = document.createElement('div')
+          depotEl.style.cssText = 'background:#10b981;width:36px;height:36px;border-radius:50%;border:3px solid white;display:flex;align-items:center;justify-content:center;color:white;font-weight:bold;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,0.3);'
+          depotEl.textContent = 'D'
+          
+          new mapboxgl.default.Marker(depotEl)
+            .setLngLat([depot.lng, depot.lat])
+            .setPopup(new mapboxgl.default.Popup({ offset: 25 }).setHTML('<strong>Depot - Fuchs Lubricants</strong>'))
             .addTo(map.current)
-        })
+        }, 500)
+
+        // Add stop markers after map is loaded and bounds are set
+        setTimeout(() => {
+          stops.forEach((stop, idx) => {
+            const el = document.createElement('div')
+            el.style.cssText = 'background:#ef4444;width:32px;height:32px;border-radius:50%;border:3px solid white;display:flex;align-items:center;justify-content:center;color:white;font-weight:bold;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,0.3);'
+            el.textContent = (idx + 1).toString()
+
+            new mapboxgl.default.Marker(el)
+              .setLngLat([stop.lng, stop.lat])
+              .setPopup(new mapboxgl.default.Popup({ offset: 25 }).setHTML(`<strong>Stop ${idx + 1}</strong><br/>${stop.name}`))
+              .addTo(map.current)
+          })
+        }, 500)
       })
     })
 

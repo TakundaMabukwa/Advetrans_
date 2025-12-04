@@ -38,7 +38,7 @@ import { StopPointDropdown } from '@/components/ui/stop-point-dropdown'
 import { VehicleRouteMap } from '@/components/ui/vehicle-route-map'
 import { markDriversUnavailable } from '@/lib/utils/driver-availability'
 import { canAssignOrderToVehicle, sortVehiclesByPriority, assignVehiclesWithDrivers, updateDriverAvailability, resetAllDriversAvailable } from '@/lib/vehicle-assignment-rules'
-import { geocodeWithRules } from '@/lib/geocoding-rules'
+// Removed geocodeWithRules import - using pre-stored customer zones instead
 import { reoptimizeVehicleRoute } from '@/lib/reoptimize-vehicle-route'
 
 
@@ -150,6 +150,7 @@ export default function LoadPlanPage() {
       ppk: 3.00,           // R3.00 per km
       profit_margin: 0.111, // 11.1%
       extra_stop: 0,       // No extra stop cost
+      drum_capacity: 80,   // Max drums
     },
     'TAUT X-BRDER - BOTSWANA': {
       fuel_rate: 3500,
@@ -157,6 +158,7 @@ export default function LoadPlanPage() {
       ppk: 2.80,
       profit_margin: 0.10,
       extra_stop: 500,
+      drum_capacity: 75,
     },
     'TAUT X-BRDER - NAMIBIA': {
       fuel_rate: 3800,
@@ -164,6 +166,7 @@ export default function LoadPlanPage() {
       ppk: 2.90,
       profit_margin: 0.10,
       extra_stop: 500,
+      drum_capacity: 75,
     },
     'CITRUS LOAD (+1 DAY STANDING FPT)': {
       fuel_rate: 4070,
@@ -172,6 +175,7 @@ export default function LoadPlanPage() {
       profit_margin: 0.111,
       extra_stop: 0,
       standing_day_cost: 2000, // Extra standing day cost
+      drum_capacity: 80,
     },
     '14M/15M COMBO (NEW)': {
       fuel_rate: 3200,
@@ -179,6 +183,7 @@ export default function LoadPlanPage() {
       ppk: 2.50,
       profit_margin: 0.12,
       extra_stop: 300,
+      drum_capacity: 60,
     },
     '14M/15M REEFER': {
       fuel_rate: 3500,
@@ -186,6 +191,7 @@ export default function LoadPlanPage() {
       ppk: 2.80,
       profit_margin: 0.12,
       extra_stop: 400,
+      drum_capacity: 60,
     },
     '9 METER (NEW)': {
       fuel_rate: 2800,
@@ -193,6 +199,7 @@ export default function LoadPlanPage() {
       ppk: 2.20,
       profit_margin: 0.11,
       extra_stop: 250,
+      drum_capacity: 40,
     },
     '8T JHB (NEW - EPS)': {
       fuel_rate: 2200,
@@ -200,6 +207,7 @@ export default function LoadPlanPage() {
       ppk: 1.80,
       profit_margin: 0.10,
       extra_stop: 200,
+      drum_capacity: 35,
     },
     '8T JHB (NEW) - X-BRDER - MOZ': {
       fuel_rate: 2400,
@@ -207,6 +215,7 @@ export default function LoadPlanPage() {
       ppk: 1.90,
       profit_margin: 0.10,
       extra_stop: 300,
+      drum_capacity: 35,
     },
     '8T JHB (OLD)': {
       fuel_rate: 2000,
@@ -214,6 +223,7 @@ export default function LoadPlanPage() {
       ppk: 1.60,
       profit_margin: 0.09,
       extra_stop: 150,
+      drum_capacity: 30,
     },
     '14 TON CURTAIN': {
       fuel_rate: 3400,
@@ -221,6 +231,7 @@ export default function LoadPlanPage() {
       ppk: 2.60,
       profit_margin: 0.11,
       extra_stop: 350,
+      drum_capacity: 55,
     },
     '1TON BAKKIE': {
       fuel_rate: 1200,
@@ -228,6 +239,7 @@ export default function LoadPlanPage() {
       ppk: 1.20,
       profit_margin: 0.08,
       extra_stop: 100,
+      drum_capacity: 10,
     },
   }
 
@@ -1364,6 +1376,12 @@ export default function LoadPlanPage() {
         const orderLng = existingCustomer?.longitude || null
         const orderZone = existingCustomer?.zone || null
 
+        // Check if loading after 11am South African time
+        const now = new Date()
+        const saTime = new Date(now.toLocaleString("en-US", {timeZone: "Africa/Johannesburg"}))
+        const currentHour = saTime.getHours()
+        const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+        
         orders.push({
           trip_id: String(delivery).trim(),
           customer_id: customerId,
@@ -1378,11 +1396,11 @@ export default function LoadPlanPage() {
           latitude: orderLat,
           longitude: orderLng,
           location_group: orderZone,
-          needs_customer_setup: !existingCustomer
+          needs_customer_setup: !existingCustomer,
+          scheduled_date: currentHour >= 11 ? tomorrow : null
         })
       }
 
-      // Geocode only orders that need it (new customers without coordinates)
       // Check for new customers and prompt for location
       if (detectedNewClients.length > 0) {
         setIsProcessingExcel(false)
@@ -1393,56 +1411,20 @@ export default function LoadPlanPage() {
         return
       }
 
+      // ZONE FIX: Use pre-stored customer zones instead of on-the-fly geocoding
       const ordersNeedingGeocode = orders.filter(o => !o.latitude || !o.longitude)
       
       if (ordersNeedingGeocode.length > 0) {
-        const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
-        if (!mapboxToken) {
-          throw new Error('Mapbox token not found - cannot geocode locations')
-        }
-
-        console.log(`Starting geocoding for ${ordersNeedingGeocode.length} orders...`)
-        let successCount = 0
-        const failedOrders = []
-
-        for (const order of ordersNeedingGeocode) {
-          if (!order.location) {
-            console.error(`Order ${order.trip_id} has no location`)
-            failedOrders.push({ order: order.trip_id, location: 'MISSING', reason: 'No location provided' })
-            continue
-          }
-
-          try {
-            const result = await geocodeWithRules(order.customer_name, order.location, mapboxToken)
-            
-            if (!result) {
-              console.error(`❌ No results for "${order.location}"`)
-              failedOrders.push({ order: order.trip_id, location: order.location, reason: 'Location not found by Mapbox' })
-              continue
-            }
-
-            order.latitude = result.lat
-            order.longitude = result.lng
-            order.location_group = result.location_group
-            successCount++
-            console.log(`✓ Geocoded "${order.location}" → ${order.location_group} (${result.place_name})`)
-          } catch (error) {
-            console.error(`❌ Geocoding error for "${order.location}":`, error)
-            failedOrders.push({ order: order.trip_id, location: order.location, reason: error.message })
-          }
-        }
-
-        console.log(`Geocoding complete: ${successCount} success, ${failedOrders.length} failed`)
-
-        if (failedOrders.length > 0) {
-          console.error('Failed geocoding details:', failedOrders)
-          throw new Error(
-            `Geocoding failed for ${failedOrders.length} order(s):\n` +
-            failedOrders.map(f => `- ${f.order}: "${f.location}" (${f.reason})`).join('\n')
-          )
-        }
+        console.log(`⚠️ ${ordersNeedingGeocode.length} orders missing coordinates - these need customer setup first`)
+        
+        // Don't fail - just mark them for customer setup
+        ordersNeedingGeocode.forEach(order => {
+          order.needs_customer_setup = true
+          order.location_group = 'Unknown Zone'
+          console.log(`Order ${order.trip_id} marked for customer setup: ${order.customer_name}`)
+        })
       } else {
-        console.log('All orders have coordinates from customer records')
+        console.log('✓ All orders have coordinates from pre-stored customer records')
       }
 
       // Save to pending_orders table
@@ -1464,14 +1446,25 @@ export default function LoadPlanPage() {
         .map(o => ({ id: o.customer_id, name: o.customer_name, location: o.location }))
         .filter((v, i, a) => a.findIndex(t => t.id === v.id) === i)
 
+      // Check if any orders were auto-assigned to tomorrow
+      const ordersForTomorrow = orders.filter(o => o.scheduled_date).length
+      
       if (newCustomerIds.length > 0) {
-        setExcelSuccess(`Successfully parsed ${orders.length} orders. ${newCustomerIds.length} new customer(s) need setup before assignment.`)
+        let message = `Successfully parsed ${orders.length} orders. ${newCustomerIds.length} new customer(s) need setup before assignment.`
+        if (ordersForTomorrow > 0) {
+          message += ` ${ordersForTomorrow} orders auto-assigned to tomorrow (loaded after 11am SA time).`
+        }
+        setExcelSuccess(message)
         // Store all pending customers and show modal for first one
         window.pendingCustomers = newCustomerIds
         setPendingCustomer(newCustomerIds[0])
         setShowNewCustomerModal(true)
       } else {
-        setExcelSuccess(`Successfully parsed ${orders.length} orders. All orders in unassigned bucket. Ready for auto-assignment.`)
+        let message = `Successfully parsed ${orders.length} orders. All orders in unassigned bucket. Ready for auto-assignment.`
+        if (ordersForTomorrow > 0) {
+          message += ` ${ordersForTomorrow} orders auto-assigned to tomorrow (loaded after 11am SA time).`
+        }
+        setExcelSuccess(message)
       }
 
     } catch (err) {
@@ -1499,18 +1492,66 @@ export default function LoadPlanPage() {
       }
 
       if (data) {
-        const orders = data.map(order => ({
-          ...order,
-          customerName: order.customer_name,
-          tripId: order.trip_id,
-          totalWeight: order.total_weight,
-          location_group: order.location_group,
-          priority: order.priority || 0
-        }))
+        // Filter out collection orders - these are picked up by customers directly
+        const filteredData = data.filter(order => {
+          const drumsValue = String(order.drums || '').toLowerCase().trim()
+          return drumsValue !== 'collection'
+        })
+        
+        // Check for orders loaded after 11am South African time
+        const now = new Date()
+        const saTime = new Date(now.toLocaleString("en-US", {timeZone: "Africa/Johannesburg"}))
+        const currentHour = saTime.getHours()
+        const today = new Date().toISOString().split('T')[0]
+        const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+        
+        // Auto-assign to tomorrow if after 11am and no scheduled_date set
+        const ordersToUpdate = []
+        const orders = filteredData.map(order => {
+          // If order has no scheduled_date and was created today after 11am, assign to tomorrow
+          if (!order.scheduled_date && order.status === 'unassigned') {
+            const orderCreated = new Date(order.created_at)
+            const orderSATime = new Date(orderCreated.toLocaleString("en-US", {timeZone: "Africa/Johannesburg"}))
+            const orderDate = orderCreated.toISOString().split('T')[0]
+            
+            if (orderDate === today && orderSATime.getHours() >= 11) {
+              ordersToUpdate.push({ id: order.id, scheduled_date: tomorrow })
+              return {
+                ...order,
+                scheduled_date: tomorrow,
+                customerName: order.customer_name,
+                tripId: order.trip_id,
+                totalWeight: order.total_weight,
+                location_group: order.location_group,
+                priority: order.priority || 0
+              }
+            }
+          }
+          
+          return {
+            ...order,
+            customerName: order.customer_name,
+            tripId: order.trip_id,
+            totalWeight: order.total_weight,
+            location_group: order.location_group,
+            priority: order.priority || 0
+          }
+        })
+        
+        // Update database for orders that need tomorrow assignment
+        if (ordersToUpdate.length > 0) {
+          console.log(`Auto-assigning ${ordersToUpdate.length} orders to tomorrow (loaded after 11am SA time)`)
+          for (const update of ordersToUpdate) {
+            await supabase
+              .from('pending_orders')
+              .update({ scheduled_date: update.scheduled_date })
+              .eq('id', update.id)
+          }
+        }
+        
         setUnassignedOrders(orders)
         
         // Check if any orders have unknown locations
-        const today = new Date().toISOString().split('T')[0]
         const hasUnknown = orders.some(o => 
           o.scheduled_date === today && (!o.latitude || !o.longitude)
         )
@@ -1599,15 +1640,27 @@ export default function LoadPlanPage() {
         })
       }
 
-      // Get ONLY new unassigned orders (exclude orders already assigned to vehicles)
-      let remainingOrders = unassignedOrders.filter(o => 
-        o.status === 'unassigned' &&  // ONLY truly unassigned orders
-        !o.assigned_vehicle_id &&      // No vehicle assigned
-        !o.scheduled_date              // Not scheduled yet
-      )
+      // Get ONLY truly unassigned orders (never assigned to any vehicle)
+      let remainingOrders = unassignedOrders.filter(o => {
+        // Exclude collection orders
+        const drumsValue = String(o.drums || '').toLowerCase().trim()
+        if (drumsValue === 'collection') return false
+        
+        // ONLY orders that have NEVER been assigned to a vehicle
+        return o.status === 'unassigned' && !o.assigned_vehicle_id
+      })
+      
+      // Separate by scheduled date
+      const todayOrders = remainingOrders.filter(o => !o.scheduled_date || o.scheduled_date === today)
+      const tomorrowOrders = remainingOrders.filter(o => o.scheduled_date === tomorrow)
+      
+      console.log(`Unassigned orders: ${todayOrders.length} for today, ${tomorrowOrders.length} for tomorrow`)
       console.log(`Starting 72-hour assignment with ${remainingOrders.length} new unassigned orders`)
       console.log(`Existing assignments: ${existingVehicleLoads.size} vehicle-date combinations`)
       console.log(`Filtered out ${unassignedOrders.length - remainingOrders.length} already-processed orders`)
+      
+      // Start with today's orders
+      remainingOrders = todayOrders
 
       // Day 1: Assign to TODAY - but only to vehicles with remaining capacity and NOT on trip
       console.log('Day 1: Starting assignment with available capacity...')
@@ -1627,17 +1680,43 @@ export default function LoadPlanPage() {
         const key = `${vehicle.id}-${today}`
         const existing = existingVehicleLoads.get(key)
         const usedCapacity = existing ? existing.currentWeight : 0
+        const usedDrums = existing ? existing.orders.reduce((sum, o) => sum + (o.drums || 0), 0) : 0
         const capacity = parseInt(vehicle.load_capacity) || 0
         const remainingCapacity = capacity - usedCapacity
         const isOnTrip = vehicleIdsOnTrip.has(vehicle.id)
         
+        // Get drum capacity from vehicle type
+        const vehicleType = Object.keys(RATE_CARD_SYSTEM).find(type => {
+          const keywords = {
+            'TAUTLINER': ['taut', 'liner'],
+            'TAUT X-BRDER - BOTSWANA': ['taut', 'botswana'],
+            'TAUT X-BRDER - NAMIBIA': ['taut', 'namibia'],
+            'CITRUS LOAD (+1 DAY STANDING FPT)': ['citrus', 'fpt'],
+            '14M/15M COMBO (NEW)': ['14m', '15m', 'combo'],
+            '14M/15M REEFER': ['14m', '15m', 'reefer'],
+            '9 METER (NEW)': ['9m', '9 meter'],
+            '8T JHB (NEW - EPS)': ['8t', '8 ton', 'jhb'],
+            '8T JHB (NEW) - X-BRDER - MOZ': ['8t', '8 ton', 'jhb', 'moz'],
+            '8T JHB (OLD)': ['8t', '8 ton', 'jhb', 'old'],
+            '14 TON CURTAIN': ['14 ton', 'curtain'],
+            '1TON BAKKIE': ['1 ton', 'bakkie']
+          }[type] || []
+          const searchText = `${vehicle.model || vehicle.make || ''}`.toLowerCase()
+          return keywords.some(keyword => searchText.includes(keyword.toLowerCase()))
+        })
+        const drumCapacity = vehicleType ? RATE_CARD_SYSTEM[vehicleType].drum_capacity : 50
+        const remainingDrums = drumCapacity - usedDrums
+        
         return {
           ...vehicle,
-          load_capacity: remainingCapacity,
+          load_capacity: remainingCapacity, // Use remaining capacity as starting point
           originalCapacity: capacity,
           remainingCapacity,
           usedCapacity,
-          hasCapacity: remainingCapacity > 0 && capacity > 0 && !isOnTrip
+          drumCapacity,
+          remainingDrums,
+          usedDrums,
+          hasCapacity: remainingCapacity > 0 && remainingDrums > 0 && !isOnTrip
         }
       }).filter(v => v.hasCapacity)
       
@@ -1862,13 +1941,18 @@ export default function LoadPlanPage() {
       // Only cascade if there are remaining orders AND no vehicles can take them
       const shouldCascade = remainingOrders.length > 0 && vehiclesWithCapacity.length === 0
       
-      if (shouldCascade) {
-        console.log(`Day 2: Cascading ${remainingOrders.length} orders to tomorrow (all vehicles at capacity)`)
+      // Add tomorrow's pre-scheduled orders to remaining orders for Day 2
+      const allTomorrowOrders = [...remainingOrders, ...tomorrowOrders]
+      
+      if (shouldCascade || tomorrowOrders.length > 0) {
+        console.log(`Day 2: Processing ${allTomorrowOrders.length} orders for tomorrow (${remainingOrders.length} cascaded + ${tomorrowOrders.length} pre-scheduled)`)
       } else if (remainingOrders.length > 0) {
         console.log(`⚠️ ${remainingOrders.length} orders remain but could not fit in available capacity`)
       }
       
-      if (shouldCascade) {
+      if (shouldCascade || tomorrowOrders.length > 0) {
+        // Use all tomorrow orders (cascaded + pre-scheduled)
+        remainingOrders = allTomorrowOrders
         console.log('Day 2: Starting assignment (today at capacity)...')
         
         // Get vehicles on trip tomorrow
@@ -1901,7 +1985,7 @@ export default function LoadPlanPage() {
         
         // Reset all drivers to available for tomorrow's assignment
         await resetAllDriversAvailable()
-        const tomorrowAssignments = await assignVehiclesWithDrivers(remainingOrders, vehiclesWithCapacityTomorrow, 1)
+        const tomorrowAssignments = await assignVehiclesWithDrivers(allTomorrowOrders, vehiclesWithCapacityTomorrow, 1)
         
         // Merge with existing and preserve location_group
         tomorrowAssignments.forEach(assignment => {
@@ -1947,7 +2031,7 @@ export default function LoadPlanPage() {
         console.log(`Day 2: Assigned ${tomorrowCount} orders to ${tomorrowAssignments.filter(a => a.assignedOrders.length > 0).length} vehicles`)
 
         // Day 3: Assign remaining to day after (use all vehicles, max 3 days)
-        remainingOrders = remainingOrders.filter(o => !tomorrowAssignedIds.has(o.id))
+        remainingOrders = allTomorrowOrders.filter(o => !tomorrowAssignedIds.has(o.id))
         console.log(`Day 3: ${remainingOrders.length} orders remaining for day after`)
         if (remainingOrders.length > 0) {
           console.log('Day 3: Starting assignment...')
@@ -1981,8 +2065,8 @@ export default function LoadPlanPage() {
           console.log(`Using ${vehiclesWithCapacityDayAfter.length} vehicles with capacity for day after (${vehicleIdsOnTripDayAfter.size} on trip, ${vehiclesData.length - vehiclesWithCapacityDayAfter.length - vehicleIdsOnTripDayAfter.size} at capacity)`)
           
           // Reset all drivers to available for day after assignment
-        await resetAllDriversAvailable()
-        const dayAfterAssignments = await assignVehiclesWithDrivers(remainingOrders, vehiclesWithCapacityDayAfter, 1)
+          await resetAllDriversAvailable()
+          const dayAfterAssignments = await assignVehiclesWithDrivers(remainingOrders, vehiclesWithCapacityDayAfter, 1)
           
           // Merge with existing and preserve location_group
           dayAfterAssignments.forEach(assignment => {
@@ -2104,8 +2188,16 @@ export default function LoadPlanPage() {
                       }
                       assignment.routeDistance = Math.round(trip.distance / 1000)
                       assignment.routeDuration = Math.round(trip.duration / 60)
+                      
+                      // Update delivery sequences in database for optimized order
+                      for (let seqIdx = 0; seqIdx < optimizedOrders.length; seqIdx++) {
+                        await supabase
+                          .from('pending_orders')
+                          .update({ delivery_sequence: seqIdx + 1 })
+                          .eq('id', optimizedOrders[seqIdx].id)
+                      }
 
-                      console.log(`✓ Optimized route for ${assignment.vehicle.registration_number}: ${assignment.routeDistance}km, ${assignment.routeDuration}min`)
+                      console.log(`✓ Optimized route for ${assignment.vehicle.registration_number}: ${assignment.routeDistance}km, ${assignment.routeDuration}min, ${optimizedOrders.length} stops sequenced`)
                     }
                   }
                 }
@@ -2978,7 +3070,7 @@ export default function LoadPlanPage() {
                           >
                             {isProcessingExcel ? 'Assigning...' : '72-Hour Auto Assignment'}
                           </Button>
-                          {todayAssignments.some(a => a.assignedOrders.length > 0) && (
+                          {todayAssignments.some(a => a.assignedOrders.length > 0 && a.assignedDrivers && a.assignedDrivers.length > 0) && (
                             <Button
                               onClick={createTripsForAllVehicles}
                               disabled={isProcessingExcel}
@@ -2991,10 +3083,43 @@ export default function LoadPlanPage() {
                         </div>
                       </div>
 
-                      {/* Available Orders by Dynamic Zone */}
-                      {unassignedOrders.filter(o => o.status === 'unassigned').length > 0 && (
-                        <div className="mt-4 mb-4">
-                          <h3 className="text-sm font-semibold mb-3 text-slate-700">Available Orders by Zone ({unassignedOrders.filter(o => o.status === 'unassigned').length})</h3>
+                      {/* Always show Driver Assignment section - exclude Mission Trailer since it shows in vehicle cards */}
+                      {(() => {
+                        const vehiclesWithoutDrivers = todayAssignments.filter(a => 
+                          a.assignedOrders.length > 0 && 
+                          (!a.assignedDrivers || a.assignedDrivers.length === 0) &&
+                          a.vehicle.registration_number !== 'Mission Trailer'
+                        )
+                        return (
+                          <div className="mt-4">
+                            <h3 className="text-sm font-semibold mb-3 text-slate-700">Vehicles Needing Drivers ({vehiclesWithoutDrivers.length})</h3>
+                            {vehiclesWithoutDrivers.length > 0 ? (
+                              <Alert variant="destructive">
+                                <AlertTriangle className="h-4 w-4" />
+                                <AlertDescription>
+                                  <div className="space-y-1">
+                                    {vehiclesWithoutDrivers.map((vehicle, idx) => (
+                                      <div key={idx} className="text-sm">
+                                        • {vehicle.vehicle.registration_number} ({vehicle.assignedOrders.length} orders, {Math.round(vehicle.totalWeight)}kg)
+                                      </div>
+                                    ))}
+                                  </div>
+                                  <p className="text-sm mt-2 text-red-600">Assign drivers to create trips for these vehicles.</p>
+                                </AlertDescription>
+                              </Alert>
+                            ) : (
+                              <div className="p-4 border rounded-lg bg-green-50 border-green-200 text-center">
+                                <p className="text-sm text-green-600">All vehicles have drivers assigned</p>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })()}
+
+                      {/* Always show Available Orders section */}
+                      <div className="mt-4 mb-4">
+                        <h3 className="text-sm font-semibold mb-3 text-slate-700">Available Orders by Zone ({unassignedOrders.filter(o => o.status === 'unassigned').length})</h3>
+                        {unassignedOrders.filter(o => o.status === 'unassigned').length > 0 ? (
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                             {Object.entries(
                               unassignedOrders
@@ -3022,11 +3147,15 @@ export default function LoadPlanPage() {
                               </div>
                             ))}
                           </div>
-                        </div>
-                      )}
+                        ) : (
+                          <div className="p-4 border rounded-lg bg-gray-50 border-gray-200 text-center">
+                            <p className="text-sm text-gray-500">No unassigned orders</p>
+                          </div>
+                        )}
+                      </div>
 
                       {/* 72-Hour Planning Window */}
-                      <div className="mt-4">
+                      <div className="mt-6">
                         <h3 className="text-lg font-semibold mb-4">72-Hour Planning Window</h3>
                         <Tabs value={selectedDate} onValueChange={(value) => {
                           setSelectedDate(value)
@@ -3178,7 +3307,8 @@ export default function LoadPlanPage() {
                             return true
                           }
                         }
-                        return false
+                        // Show Mission Trailer even without driver if it has orders
+                        return a.vehicle.registration_number === 'Mission Trailer' && a.assignedOrders.length > 0
                       }
                       
                       return true
@@ -3237,7 +3367,7 @@ export default function LoadPlanPage() {
 
                     return (
                       <div className="space-y-6">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 mb-4">
                           <div className="h-1 w-1 rounded-full bg-slate-600"></div>
                           <h4 className="font-semibold text-slate-800 text-base">Vehicle Assignments by Route</h4>
                         </div>
@@ -3268,10 +3398,20 @@ export default function LoadPlanPage() {
                               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                                 {assignments.map((assignment, index) => {
                                   const isPaired = assignment.vehicle.registration_number === 'CN30435' || assignment.vehicle.registration_number === 'Mission Trailer'
+                                  const isMissionTrailer = assignment.vehicle.registration_number === 'Mission Trailer'
+                                  const needsDriver = assignment.assignedOrders.length > 0 && (!assignment.assignedDrivers || assignment.assignedDrivers.length === 0)
                                   return (
                                     <div
                                       key={index}
-                                      className="group p-4 border border-slate-200 rounded-lg bg-white hover:border-slate-400 hover:shadow-md transition-all cursor-pointer"
+                                      className={`group p-4 border rounded-lg bg-white hover:border-slate-400 hover:shadow-md transition-all cursor-pointer ${
+                                        isMissionTrailer && needsDriver 
+                                          ? 'border-blue-400 shadow-lg animate-pulse' 
+                                          : 'border-slate-200'
+                                      }`}
+                                      style={isMissionTrailer && needsDriver ? {
+                                        animation: 'flash 1.5s infinite',
+                                        background: 'linear-gradient(135deg, #3b82f6 0%, #60a5fa 50%, #93c5fd 100%)'
+                                      } : {}}
                                       onClick={() => {
                                         const dateParam = selectedDate === 'today' ? new Date().toISOString().split('T')[0] : selectedDate === 'tomorrow' ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0] : new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString().split('T')[0]
                                         window.location.href = `/load-plan/vehicle/${assignment.vehicle.id}?date=${dateParam}`
@@ -3280,15 +3420,22 @@ export default function LoadPlanPage() {
                                       <div className="flex justify-between items-start mb-3">
                                         <div className="flex-1 min-w-0">
                                           <div className="flex items-center gap-2">
-                                            <p className="font-semibold text-slate-800 text-sm truncate">{assignment.vehicle.registration_number}</p>
+                                            <p className={`font-semibold text-sm truncate ${
+                                              isMissionTrailer && needsDriver ? 'text-white' : 'text-slate-800'
+                                            }`}>{assignment.vehicle.registration_number}</p>
                                             {isPaired && (
                                               <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 text-xs rounded font-medium">Paired</span>
+                                            )}
+                                            {isMissionTrailer && needsDriver && (
+                                              <span className="px-1.5 py-0.5 bg-white/20 text-white text-xs rounded font-bold backdrop-blur-sm">NEEDS DRIVER</span>
                                             )}
                                             {assignment.assignedOrders.some(o => o.status === 'in-trip') && (
                                               <span className="px-1.5 py-0.5 bg-blue-600 text-white text-xs rounded font-bold">ON TRIP</span>
                                             )}
                                           </div>
-                                          <p className="text-xs text-slate-500 mt-0.5 truncate">{assignment.vehicle.description}</p>
+                                          <p className={`text-xs mt-0.5 truncate ${
+                                            isMissionTrailer && needsDriver ? 'text-white/80' : 'text-slate-500'
+                                          }`}>{assignment.vehicle.description}</p>
                                           {assignment.assignedDrivers && assignment.assignedDrivers.length > 0 && (
                                             <div className="mt-1">
                                               <p className="text-xs text-green-600 font-medium">
@@ -3297,42 +3444,47 @@ export default function LoadPlanPage() {
                                             </div>
                                           )}
                                         </div>
-                                        <span className={`ml-2 px-2.5 py-1 rounded-md text-xs font-semibold whitespace-nowrap ${assignment.utilization > 95 ? 'bg-red-50 text-red-700 border border-red-200' :
-                                          assignment.utilization > 85 ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                                            'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                        <span className={`ml-2 px-2.5 py-1 rounded-md text-xs font-semibold whitespace-nowrap ${
+                                          isMissionTrailer && needsDriver 
+                                            ? 'bg-white/20 text-white border border-white/30 backdrop-blur-sm'
+                                            : assignment.utilization > 95 ? 'bg-red-50 text-red-700 border border-red-200' :
+                                              assignment.utilization > 85 ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                                'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                           }`}>
                                           {assignment.utilization.toFixed(0)}%
                                         </span>
                                       </div>
                                       <div className="space-y-2">
                                         <div className="flex justify-between text-xs">
-                                          <span className="text-slate-500">Capacity</span>
-                                          <span className="font-medium text-slate-700">{assignment.capacity.toLocaleString()}kg</span>
+                                          <span className={isMissionTrailer && needsDriver ? 'text-white/80' : 'text-slate-500'}>Capacity</span>
+                                          <span className={`font-medium ${isMissionTrailer && needsDriver ? 'text-white' : 'text-slate-700'}`}>{assignment.capacity.toLocaleString()}kg</span>
                                         </div>
                                         <div className="flex justify-between text-xs">
-                                          <span className="text-slate-500">Loaded</span>
-                                          <span className="font-medium text-slate-700">{Math.round(assignment.totalWeight).toLocaleString()}kg</span>
+                                          <span className={isMissionTrailer && needsDriver ? 'text-white/80' : 'text-slate-500'}>Loaded</span>
+                                          <span className={`font-medium ${isMissionTrailer && needsDriver ? 'text-white' : 'text-slate-700'}`}>{Math.round(assignment.totalWeight).toLocaleString()}kg</span>
                                         </div>
                                         <div className="flex justify-between text-xs">
-                                          <span className="text-slate-500">Orders</span>
-                                          <span className="font-medium text-slate-700">{assignment.assignedOrders.length}</span>
+                                          <span className={isMissionTrailer && needsDriver ? 'text-white/80' : 'text-slate-500'}>Orders</span>
+                                          <span className={`font-medium ${isMissionTrailer && needsDriver ? 'text-white' : 'text-slate-700'}`}>{assignment.assignedOrders.length}</span>
                                         </div>
                                         {assignment.routeDistance && (
                                           <div className="flex justify-between text-xs">
-                                            <span className="text-slate-500">Distance</span>
-                                            <span className="font-medium text-slate-700">{assignment.routeDistance}km</span>
+                                            <span className={isMissionTrailer && needsDriver ? 'text-white/80' : 'text-slate-500'}>Distance</span>
+                                            <span className={`font-medium ${isMissionTrailer && needsDriver ? 'text-white' : 'text-slate-700'}`}>{assignment.routeDistance}km</span>
                                           </div>
                                         )}
                                         {assignment.routeDuration && (
                                           <div className="flex justify-between text-xs">
-                                            <span className="text-slate-500">Duration</span>
-                                            <span className="font-medium text-slate-700">{Math.floor(assignment.routeDuration / 60)}h {assignment.routeDuration % 60}m</span>
+                                            <span className={isMissionTrailer && needsDriver ? 'text-white/80' : 'text-slate-500'}>Duration</span>
+                                            <span className={`font-medium ${isMissionTrailer && needsDriver ? 'text-white' : 'text-slate-700'}`}>{Math.floor(assignment.routeDuration / 60)}h {assignment.routeDuration % 60}m</span>
                                           </div>
                                         )}
                                         {assignment.optimizedRoute && (
                                           <div className="flex justify-between text-xs">
-                                            <span className="text-slate-500">Route</span>
-                                            <span className="font-medium text-green-700 flex items-center gap-1">
+                                            <span className={isMissionTrailer && needsDriver ? 'text-white/80' : 'text-slate-500'}>Route</span>
+                                            <span className={`font-medium flex items-center gap-1 ${
+                                              isMissionTrailer && needsDriver ? 'text-white' : 'text-green-700'
+                                            }`}>
                                               <CheckCircle className="h-3 w-3" />
                                               Optimized
                                             </span>
@@ -3340,17 +3492,21 @@ export default function LoadPlanPage() {
                                         )}
                                         {assignment.assignedDrivers && assignment.assignedDrivers.length > 0 && (
                                           <div className="flex justify-between text-xs">
-                                            <span className="text-slate-500">Drivers</span>
-                                            <span className="font-medium text-slate-700">{assignment.assignedDrivers.length}</span>
+                                            <span className={isMissionTrailer && needsDriver ? 'text-white/80' : 'text-slate-500'}>Drivers</span>
+                                            <span className={`font-medium ${isMissionTrailer && needsDriver ? 'text-white' : 'text-slate-700'}`}>{assignment.assignedDrivers.length}</span>
                                           </div>
                                         )}
                                         <div className="pt-2">
-                                          <div className="w-full bg-slate-200 rounded-full h-1.5 overflow-hidden">
+                                          <div className={`w-full rounded-full h-1.5 overflow-hidden ${
+                                            isMissionTrailer && needsDriver ? 'bg-white/30' : 'bg-slate-200'
+                                          }`}>
                                             <div
-                                              className={`h-1.5 rounded-full transition-all ${assignment.utilization > 95 ? 'bg-red-500' :
-                                                assignment.utilization > 85 ? 'bg-amber-500' :
-                                                  'bg-emerald-500'
-                                                }`}
+                                              className={`h-1.5 rounded-full transition-all ${
+                                                isMissionTrailer && needsDriver ? 'bg-white' :
+                                                  assignment.utilization > 95 ? 'bg-red-500' :
+                                                    assignment.utilization > 85 ? 'bg-amber-500' :
+                                                      'bg-emerald-500'
+                                              }`}
                                               style={{ width: `${Math.min(assignment.utilization, 100)}%` }}
                                             ></div>
                                           </div>

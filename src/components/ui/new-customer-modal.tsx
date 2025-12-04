@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { MapPin, Plus, X, Map } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { toast } from 'sonner'
+import { geocodeWithRules } from '@/lib/geocoding-rules'
 
 interface NewCustomerModalProps {
   isOpen: boolean
@@ -73,10 +74,9 @@ export function NewCustomerModal({ isOpen, onClose, customerName, customerId, in
   const [isGeocoding, setIsGeocoding] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   
-  // Reset and auto-fill when customer changes
+  // Auto-fill location when modal opens
   React.useEffect(() => {
     if (isOpen && initialLocation) {
-      // Reset form
       setZone('')
       setAddress(initialLocation)
       setSelectedCoords(null)
@@ -84,7 +84,7 @@ export function NewCustomerModal({ isOpen, onClose, customerName, customerId, in
       setAddressSuggestions([])
       setNewRestriction('')
       
-      // Auto-geocode
+      // Auto-search with Western Cape priority
       handleAddressChange(initialLocation)
     }
   }, [customerId, isOpen])
@@ -102,11 +102,23 @@ export function NewCustomerModal({ isOpen, onClose, customerName, customerId, in
       const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
       if (!mapboxToken) return
 
+      // Prioritize Western Cape regions
+      const westernCapeQuery = `${value}, Western Cape, South Africa`
       const response = await fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(value)}.json?access_token=${mapboxToken}&country=za&limit=5`
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(westernCapeQuery)}.json?access_token=${mapboxToken}&country=za&proximity=-33.9249,18.4241&limit=8`
       )
       const data = await response.json()
-      setAddressSuggestions(data.features || [])
+      
+      // Sort results to prioritize Western Cape
+      const suggestions = (data.features || []).sort((a: any, b: any) => {
+        const aWC = a.place_name.toLowerCase().includes('western cape')
+        const bWC = b.place_name.toLowerCase().includes('western cape')
+        if (aWC && !bWC) return -1
+        if (!aWC && bWC) return 1
+        return 0
+      })
+      
+      setAddressSuggestions(suggestions)
     } catch (error) {
       console.error('Geocoding error:', error)
     } finally {
@@ -114,16 +126,36 @@ export function NewCustomerModal({ isOpen, onClose, customerName, customerId, in
     }
   }
 
-  const handleSelectAddress = (feature: any) => {
+  const handleSelectAddress = async (feature: any) => {
     setAddress(feature.place_name)
     setSelectedCoords({
       lat: feature.center[1],
       lng: feature.center[0]
     })
     
-    // Auto-detect zone from location
-    const detectedZone = detectZoneFromLocation(feature.place_name, feature.context || [])
-    setZone(detectedZone)
+    // Use proper geocoding rules to get accurate zone
+    try {
+      const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+      if (mapboxToken) {
+        const geocodeResult = await geocodeWithRules(customerName, feature.place_name, mapboxToken)
+        if (geocodeResult) {
+          setZone(geocodeResult.location_group)
+        } else {
+          // Fallback to old detection method
+          const detectedZone = detectZoneFromLocation(feature.place_name, feature.context || [])
+          setZone(detectedZone)
+        }
+      } else {
+        // Fallback to old detection method
+        const detectedZone = detectZoneFromLocation(feature.place_name, feature.context || [])
+        setZone(detectedZone)
+      }
+    } catch (error) {
+      console.error('Error geocoding with rules:', error)
+      // Fallback to old detection method
+      const detectedZone = detectZoneFromLocation(feature.place_name, feature.context || [])
+      setZone(detectedZone)
+    }
     
     setAddressSuggestions([])
   }
@@ -147,10 +179,38 @@ export function NewCustomerModal({ isOpen, onClose, customerName, customerId, in
 
     setIsSaving(true)
     try {
+      // Determine proper region based on zone
+      let region = 'Other'
+      if (zone.includes('Cape Town') || zone.includes('Boland') || zone.includes('West Coast') || zone.includes('Overberg') || zone.includes('Garden Route')) {
+        region = 'Western Cape'
+      } else if (zone.includes('Johannesburg') || zone.includes('Pretoria')) {
+        region = 'Gauteng'
+      } else if (zone.includes('Durban')) {
+        region = 'KwaZulu-Natal'
+      } else if (zone.includes('Port Elizabeth')) {
+        region = 'Eastern Cape'
+      }
+
+      // Get municipality from last geocoding result or use zone as fallback
+      let municipality = zone
+      try {
+        const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+        if (mapboxToken) {
+          const geocodeResult = await geocodeWithRules(customerName, address, mapboxToken)
+          if (geocodeResult?.municipality) {
+            municipality = geocodeResult.municipality
+          }
+        }
+      } catch (error) {
+        console.log('Using zone as municipality fallback')
+      }
+
       const customerData = {
         customer_id: customerId,
         customer_name: customerName,
         zone,
+        municipality,
+        region,
         address,
         latitude: selectedCoords.lat,
         longitude: selectedCoords.lng,
@@ -198,8 +258,8 @@ export function NewCustomerModal({ isOpen, onClose, customerName, customerId, in
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="address">Confirm Address *</Label>
-            <p className="text-xs text-gray-500 mb-1">Format: Customer Name, Location (e.g., "SCANIA SOUTH AFRICA, Cape Town")</p>
+            <Label htmlFor="address">Search Location *</Label>
+            <p className="text-xs text-gray-500 mb-1">Enter location from "Location of the ship-to party" field</p>
             <div className="relative">
               <Input
                 id="address"

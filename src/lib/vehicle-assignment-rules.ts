@@ -67,6 +67,7 @@ export function isVehiclePaired(vehicleReg: string): boolean {
 /**
  * Allocate orders to paired vehicles until both reach capacity
  * NEW RULE: If Mission Trailer is picked, get CN30435 and allocate to both
+ * ENHANCED: Ensure Mission Trailer always gets orders when it's selected
  */
 export function allocateOrdersToPairedVehicles(
   orders: Order[],
@@ -107,8 +108,12 @@ export function allocateOrdersToPairedVehicles(
   
   console.log(`  Compatible orders for ${sharedDestination || 'route'}: ${compatibleOrders.length}`)
   
-  // Allocate orders alternating between vehicles until both reach capacity
-  let currentVehicle = cn30435 // Start with CN30435 (vehicle, not trailer)
+  // NEW RULE: If Mission Trailer has orders but CN30435 doesn't, prioritize CN30435 first
+  // This ensures both vehicles get orders when Mission Trailer is selected
+  let currentVehicle = missionTrailer.assignedOrders.length > 0 && cn30435.assignedOrders.length === 0 
+    ? cn30435 
+    : missionTrailer
+  
   let allocatedCount = 0
   
   for (const order of compatibleOrders) {
@@ -201,6 +206,13 @@ export function canAssignOrderToVehicle(
   const customerName = (order.customerName || '').toLowerCase()
   const restrictions = (assignment.vehicle.restrictions || '').toLowerCase()
   const vehicleReg = assignment.vehicle.registration_number
+  
+  // Check drum capacity constraint
+  if (hasDrums && assignment.remainingDrums !== undefined) {
+    if (drumCount > assignment.remainingDrums) {
+      return false
+    }
+  }
 
   // NEW RULE: If Mission Trailer is picked, check combined capacity with CN30435
   if (isVehiclePaired(vehicleReg) && allAssignments) {
@@ -218,6 +230,16 @@ export function canAssignOrderToVehicle(
       return false
     }
     
+    // ENHANCED: If Mission Trailer is being assigned to, ensure CN30435 also gets orders
+    if (vehicleReg === 'Mission Trailer') {
+      const cn30435Assignment = pairedAssignments.find(a => a.vehicle.registration_number === 'CN30435')
+      if (cn30435Assignment && cn30435Assignment.assignedOrders.length === 0) {
+        // Mission Trailer is getting orders but CN30435 is empty - this is allowed
+        // The pairing logic will handle distributing orders to both vehicles
+        console.log(`Mission Trailer assignment - CN30435 will be paired automatically`)
+      }
+    }
+    
     // If either vehicle in the pair has orders, both must go to same destination
     const hasOrdersInPair = pairedAssignments.some(a => a.assignedOrders.length > 0)
     if (hasOrdersInPair && (order.locationGroup || order.location_group)) {
@@ -233,11 +255,25 @@ export function canAssignOrderToVehicle(
     }
   } else {
     // For non-paired vehicles, check individual capacity (enforce 95% limit)
-    // CRITICAL: Use max capacity, not current totalWeight
     const maxAllowedWeight = assignment.capacity * 0.95
     if (assignment.totalWeight + orderWeight > maxAllowedWeight) {
-      console.log(`  ✗ ${order.customerName} exceeds capacity: ${Math.round(assignment.totalWeight + orderWeight)}kg > ${Math.round(maxAllowedWeight)}kg (${assignment.vehicle.registration_number})`)
       return false
+    }
+  }
+  
+  // Geographic radius constraint - keep deliveries within reasonable distance
+  if (assignment.assignedOrders.length > 0 && order.latitude && order.longitude) {
+    const maxDistance = 100 // km radius limit
+    for (const existingOrder of assignment.assignedOrders) {
+      if (existingOrder.latitude && existingOrder.longitude) {
+        const distance = haversineDistance(
+          order.latitude, order.longitude,
+          existingOrder.latitude, existingOrder.longitude
+        )
+        if (distance > maxDistance) {
+          return false
+        }
+      }
     }
   }
 
@@ -273,8 +309,18 @@ export function canAssignOrderToVehicle(
             pairedFirstOrder.latitude, pairedFirstOrder.longitude
           )
           
-          // If paired vehicles are going to different areas (>50km apart), reject
-          if (distance > 50) {
+          // Check if paired vehicles are going to different municipalities/regions
+          const thisMapping = thisFirstOrder.location_group ? getMunicipalityAndRegion(thisFirstOrder.location_group) : null
+          const pairedMapping = pairedFirstOrder.location_group ? getMunicipalityAndRegion(pairedFirstOrder.location_group) : null
+          
+          // Allow same municipality or region, or if distance < 50km
+          if (thisMapping && pairedMapping) {
+            const sameArea = thisMapping.municipality === pairedMapping.municipality || 
+                            thisMapping.region === pairedMapping.region
+            if (!sameArea && distance > 50) {
+              return false
+            }
+          } else if (distance > 50) {
             return false
           }
         }
@@ -539,7 +585,7 @@ export function assignDriversToVehicle(
 /**
  * Calculate Haversine distance between two points in kilometers
  */
-function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+export function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371
   const dLat = (lat2 - lat1) * Math.PI / 180
   const dLon = (lon2 - lon1) * Math.PI / 180
@@ -548,6 +594,109 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
     Math.sin(dLon / 2) * Math.sin(dLon / 2)
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
   return R * c
+}
+
+/**
+ * Create radius-based client clusters
+ */
+function createGeographicClusters(orders: Order[]): Order[][] {
+  const clusters: Order[][] = []
+  const remaining = [...orders.filter(o => o.latitude && o.longitude)]
+  const noCoords = orders.filter(o => !o.latitude || !o.longitude)
+  const CLUSTER_RADIUS = 50 // km
+  const MAX_CLUSTER_WEIGHT = 3000 // kg
+  
+  while (remaining.length > 0) {
+    const cluster: Order[] = []
+    let clusterWeight = 0
+    
+    // Start with first remaining order
+    const seedOrder = remaining.shift()!
+    cluster.push(seedOrder)
+    clusterWeight += seedOrder.totalWeight || 0
+    
+    // Find all orders within radius and weight limit
+    for (let i = remaining.length - 1; i >= 0; i--) {
+      const order = remaining[i]
+      const orderWeight = order.totalWeight || 0
+      
+      if (clusterWeight + orderWeight > MAX_CLUSTER_WEIGHT) continue
+      
+      const distance = haversineDistance(
+        seedOrder.latitude!, seedOrder.longitude!,
+        order.latitude!, order.longitude!
+      )
+      
+      if (distance <= CLUSTER_RADIUS) {
+        cluster.push(order)
+        clusterWeight += orderWeight
+        remaining.splice(i, 1)
+      }
+    }
+    
+    clusters.push(cluster)
+  }
+  
+  // Add orders without coordinates as individual clusters
+  noCoords.forEach(order => clusters.push([order]))
+  
+  return clusters
+}
+
+/**
+ * Find best vehicle for cluster weight
+ */
+function findBestVehicleForWeight(
+  weight: number, 
+  assignments: VehicleAssignment[], 
+  orders: Order[]
+): VehicleAssignment | null {
+  const availableVehicles = assignments.filter(a => {
+    if (a.assignedOrders.length > 0) return false
+    if (weight > a.capacity * 0.95) return false
+    return orders.every(order => canAssignOrderToVehicle(order, a, assignments))
+  })
+  
+  if (availableVehicles.length === 0) return null
+  
+  // Prefer 75-95% utilization
+  return availableVehicles.reduce((best, vehicle) => {
+    const utilization = (weight / vehicle.capacity) * 100
+    const bestUtil = (weight / best.capacity) * 100
+    
+    if (utilization >= 75 && utilization <= 95) {
+      if (bestUtil < 75 || bestUtil > 95) return vehicle
+      return utilization > bestUtil ? vehicle : best
+    }
+    
+    return Math.abs(utilization - 85) < Math.abs(bestUtil - 85) ? vehicle : best
+  })
+}
+
+/**
+ * Check if two locations are nearby (same route)
+ */
+function isNearbyLocation(loc1: string, loc2: string): boolean {
+  const routes = [
+    ['STIKLAND', 'EPPING', 'ELSIES', 'BRACKENFELL'],
+    ['MILNERTON', 'CAPE TOWN', 'DIEP RIVIER', 'GOODWOOD', 'PAROW'],
+    ['BELLVILLE', 'TYGERVALLEI', 'STELLENBOSCH'],
+    ['GRABOUW', 'CALEDON', 'BREDASDORP', 'OUPLAAS'],
+    ['WORCESTER', 'MONTAGU', 'ASHTON', 'BONNIEVALE', 'ROBERTSON']
+  ]
+  
+  return routes.some(route => 
+    route.includes(loc1.toUpperCase()) && route.includes(loc2.toUpperCase())
+  )
+}
+
+function getVehicleTypeName(vehicle: Vehicle): string {
+  const reg = vehicle.registration_number
+  if (reg.includes('Fuso')) return '(Small Fuso)'
+  if (reg.includes('Dyna')) return '(Dyna)'
+  if (reg.includes('Bakkie')) return '(Bakkie)'
+  if (reg.includes('Jac')) return '(Jac)'
+  return ''
 }
 
 /**
@@ -602,73 +751,182 @@ function calculateCentroid(orders: Order[]): { lat: number, lon: number } | null
 }
 
 /**
- * Map zones to broader regions for better vehicle utilization
+ * Create proximity-based sub-clusters within a municipality
+ * Uses k-means-like clustering to group nearby orders
  */
-function getRegionForZone(zone: string): string {
-  const regionMap: Record<string, string> = {
-    // Cape Town Metro
-    'Mfuleni': 'Cape Town Metro',
-    'Khayelitsha': 'Cape Town Metro',
-    'Mitchells Plain': 'Cape Town Metro',
-    'Cape Town CBD': 'Cape Town Metro',
-    'Bellville': 'Cape Town Metro',
-    'Parow': 'Cape Town Metro',
-    'Goodwood': 'Cape Town Metro',
-    'Table View': 'Cape Town Metro',
-    'Milnerton': 'Cape Town Metro',
+function createProximitySubClusters(orders: Order[], targetWeight: number): Order[][] {
+  if (orders.length <= 1) return [orders]
+  
+  const clusters: Order[][] = []
+  const remaining = [...orders]
+  
+  while (remaining.length > 0) {
+    // Start new cluster with heaviest remaining order
+    remaining.sort((a, b) => (b.totalWeight || 0) - (a.totalWeight || 0))
+    const cluster = [remaining.shift()!]
+    let clusterWeight = cluster[0].totalWeight || 0
     
-    // Northern Suburbs
-    'Durbanville': 'Northern Suburbs',
-    'Brackenfell': 'Northern Suburbs',
-    'Kuils River': 'Northern Suburbs',
+    // Add nearby orders until target weight reached
+    while (remaining.length > 0 && clusterWeight < targetWeight) {
+      const clusterCentroid = calculateCentroid(cluster)
+      if (!clusterCentroid) break
+      
+      // Find nearest remaining order
+      let nearestOrder: Order | null = null
+      let nearestDistance = Infinity
+      let nearestIndex = -1
+      
+      for (let i = 0; i < remaining.length; i++) {
+        const order = remaining[i]
+        if (!order.latitude || !order.longitude) continue
+        
+        const distance = haversineDistance(
+          clusterCentroid.lat, clusterCentroid.lon,
+          order.latitude, order.longitude
+        )
+        
+        // Only consider orders within 25km and that fit in weight limit
+        if (distance <= 25 && distance < nearestDistance) {
+          const orderWeight = order.totalWeight || 0
+          if (clusterWeight + orderWeight <= targetWeight * 1.2) { // Allow 20% overage
+            nearestOrder = order
+            nearestDistance = distance
+            nearestIndex = i
+          }
+        }
+      }
+      
+      if (nearestOrder && nearestIndex >= 0) {
+        cluster.push(nearestOrder)
+        clusterWeight += nearestOrder.totalWeight || 0
+        remaining.splice(nearestIndex, 1)
+      } else {
+        break // No more suitable orders found
+      }
+    }
     
-    // Southern Suburbs
-    'Wynberg': 'Southern Suburbs',
-    'Claremont': 'Southern Suburbs',
-    'Constantia': 'Southern Suburbs',
-    
-    // West Coast
-    'Porterville': 'West Coast',
-    'Piketberg': 'West Coast',
-    'Vredenburg': 'West Coast',
-    
-    // Boland
-    'Stellenbosch': 'Boland',
-    'Paarl': 'Boland',
-    'Worcester': 'Boland',
-    'Ceres': 'Boland',
-    'Robertson': 'Boland',
-    
-    // Overberg
-    'Somerset West': 'Overberg',
-    'Strand': 'Overberg',
-    'Hermanus': 'Overberg',
-    'Caledon': 'Overberg',
-    'Bredasdorp': 'Overberg',
-    'Betty\'s Bay': 'Overberg',
-    
-    // Garden Route
-    'Swellendam': 'Garden Route',
-    'George': 'Garden Route',
-    'Mossel Bay': 'Garden Route',
-    'Oudtshoorn': 'Garden Route',
-    'Knysna': 'Garden Route',
-    'Plettenberg Bay': 'Garden Route',
-    
-    // KZN
-    'Field\'s Hill': 'KwaZulu-Natal',
-    'Durban': 'KwaZulu-Natal',
-    'Pietermaritzburg': 'KwaZulu-Natal',
-    
-    // Northern Cape
-    'Kimberley': 'Northern Cape',
-    
-    // Other
-    'New Orleans': 'Other',
-    'Theewaterskloof NU': 'Overberg'
+    clusters.push(cluster)
   }
   
-  return regionMap[zone] || 'Other'
+  return clusters
+}
+
+/**
+ * Enhanced municipality and region mapping for better geographic clustering
+ * Groups customers by municipalities first, then by broader regions
+ */
+function getMunicipalityAndRegion(zone: string): { municipality: string; region: string } {
+  const municipalityMap: Record<string, { municipality: string; region: string }> = {
+    // City of Cape Town Municipality
+    'Mfuleni': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Khayelitsha': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Mitchells Plain': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Cape Town CBD': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Bellville': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Parow': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Goodwood': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Table View': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Milnerton': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Wynberg': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Claremont': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Constantia': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Hout Bay': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Fish Hoek': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Simons Town': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Durbanville': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Brackenfell': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Kuils River': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    
+    // Drakenstein Municipality (Paarl area)
+    'Paarl': { municipality: 'Drakenstein', region: 'Boland' },
+    'Wellington': { municipality: 'Drakenstein', region: 'Boland' },
+    
+    // Stellenbosch Municipality
+    'Stellenbosch': { municipality: 'Stellenbosch', region: 'Boland' },
+    'Somerset West': { municipality: 'Stellenbosch', region: 'Boland' },
+    'Strand': { municipality: 'Stellenbosch', region: 'Boland' },
+    
+    // Breede Valley Municipality
+    'Worcester': { municipality: 'Breede Valley', region: 'Boland' },
+    'De Doorns': { municipality: 'Breede Valley', region: 'Boland' },
+    
+    // Witzenberg Municipality
+    'Ceres': { municipality: 'Witzenberg', region: 'Boland' },
+    'Tulbagh': { municipality: 'Witzenberg', region: 'Boland' },
+    
+    // Langeberg Municipality
+    'Robertson': { municipality: 'Langeberg', region: 'Boland' },
+    'Ashton': { municipality: 'Langeberg', region: 'Boland' },
+    'Montagu': { municipality: 'Langeberg', region: 'Boland' },
+    
+    // Swellendam Municipality
+    'Swellendam': { municipality: 'Swellendam', region: 'Overberg' },
+    'Barrydale': { municipality: 'Swellendam', region: 'Overberg' },
+    
+    // Overstrand Municipality
+    'Hermanus': { municipality: 'Overstrand', region: 'Overberg' },
+    'Gansbaai': { municipality: 'Overstrand', region: 'Overberg' },
+    'Betty\'s Bay': { municipality: 'Overstrand', region: 'Overberg' },
+    
+    // Theewaterskloof Municipality
+    'Caledon': { municipality: 'Theewaterskloof', region: 'Overberg' },
+    'Grabouw': { municipality: 'Theewaterskloof', region: 'Overberg' },
+    'Villiersdorp': { municipality: 'Theewaterskloof', region: 'Overberg' },
+    'Theewaterskloof NU': { municipality: 'Theewaterskloof', region: 'Overberg' },
+    
+    // Cape Agulhas Municipality
+    'Bredasdorp': { municipality: 'Cape Agulhas', region: 'Overberg' },
+    'Struisbaai': { municipality: 'Cape Agulhas', region: 'Overberg' },
+    
+    // George Municipality
+    'George': { municipality: 'George', region: 'Garden Route' },
+    'Wilderness': { municipality: 'George', region: 'Garden Route' },
+    
+    // Mossel Bay Municipality
+    'Mossel Bay': { municipality: 'Mossel Bay', region: 'Garden Route' },
+    
+    // Oudtshoorn Municipality
+    'Oudtshoorn': { municipality: 'Oudtshoorn', region: 'Garden Route' },
+    
+    // Knysna Municipality
+    'Knysna': { municipality: 'Knysna', region: 'Garden Route' },
+    'Sedgefield': { municipality: 'Knysna', region: 'Garden Route' },
+    
+    // Bitou Municipality
+    'Plettenberg Bay': { municipality: 'Bitou', region: 'Garden Route' },
+    
+    // West Coast District
+    'Saldanha': { municipality: 'Saldanha Bay', region: 'West Coast' },
+    'Vredenburg': { municipality: 'Saldanha Bay', region: 'West Coast' },
+    'Langebaan': { municipality: 'Saldanha Bay', region: 'West Coast' },
+    'Malmesbury': { municipality: 'Swartland', region: 'West Coast' },
+    'Moorreesburg': { municipality: 'Swartland', region: 'West Coast' },
+    'Piketberg': { municipality: 'Bergrivier', region: 'West Coast' },
+    'Porterville': { municipality: 'Bergrivier', region: 'West Coast' },
+    'Velddrif': { municipality: 'Bergrivier', region: 'West Coast' },
+    
+    // KwaZulu-Natal
+    'Field\'s Hill': { municipality: 'eThekwini', region: 'KwaZulu-Natal' },
+    'Durban': { municipality: 'eThekwini', region: 'KwaZulu-Natal' },
+    'Pinetown': { municipality: 'eThekwini', region: 'KwaZulu-Natal' },
+    'Pietermaritzburg': { municipality: 'Msunduzi', region: 'KwaZulu-Natal' },
+    
+    // Northern Cape
+    'Kimberley': { municipality: 'Sol Plaatje', region: 'Northern Cape' },
+    'Upington': { municipality: 'Dawid Kruiper', region: 'Northern Cape' },
+    
+    // Other/Unknown
+    'New Orleans': { municipality: 'Unknown', region: 'Other' }
+  }
+  
+  return municipalityMap[zone] || { municipality: 'Unknown', region: 'Other' }
+}
+
+/**
+ * Get region from zone (backward compatibility)
+ */
+function getRegionForZone(zone: string): string {
+  return getMunicipalityAndRegion(zone).region
 }
 
 /**
@@ -953,9 +1211,8 @@ function calculateRouteMetrics(
 
 
 /**
- * Enhanced vehicle assignment with GEOGRAPHIC CLUSTERING
- * PRIORITY: 1) Geographic proximity 2) Vehicle restrictions 3) Capacity optimization
- * When items are already assigned, uses vehicle's current weight as starting point
+ * Geographic clustering vehicle assignment matching manual strategy
+ * Groups nearby locations together and assigns appropriate vehicles based on total weight
  */
 export async function assignVehiclesWithDrivers(
   orders: Order[],
@@ -963,21 +1220,33 @@ export async function assignVehiclesWithDrivers(
   requiredDriversPerVehicle: number = 1,
   maxOrdersToAssign?: number
 ): Promise<VehicleAssignment[]> {
-  // ═══════════════════════════════════════════════════════════════
-  // NEW APPROACH: ROUTE-FIRST PLANNING
-  // 1. Map locations → 2. Group regions → 3. Plan routes → 4. Assign vehicles
-  // ═══════════════════════════════════════════════════════════════
-  
   console.log(`\n╔═══════════════════════════════════════════════════════════╗`)
-  console.log(`║           ROUTE-FIRST VEHICLE ASSIGNMENT                  ║`)
+  console.log(`║        GEOGRAPHIC CLUSTERING VEHICLE ASSIGNMENT           ║`)
   console.log(`╚═══════════════════════════════════════════════════════════╝`)
+  
+  // Filter out collection orders - these are picked up by customers directly
+  const deliveryOrders = orders.filter(order => {
+    const drumsValue = String((order as any).drums || '').toLowerCase().trim()
+    if (drumsValue === 'collection') {
+      console.log(`Excluding collection order from assignment: ${order.customerName} - ${(order as any).drums}`)
+      return false
+    }
+    return true
+  })
+  
+  console.log(`Filtered ${orders.length} orders to ${deliveryOrders.length} delivery orders (excluded ${orders.length - deliveryOrders.length} collections)`)
+  
+  if (deliveryOrders.length === 0) {
+    console.log('No delivery orders to assign - all orders are collections')
+    return []
+  }
   
   // Fetch available drivers
   const availableDrivers = await fetchAvailableDrivers()
   console.log(`Fetched ${availableDrivers.length} available drivers for assignment`)
   let remainingDrivers = [...availableDrivers]
   
-  // Initialize vehicle assignments (check for existing loads)
+  // Initialize vehicle assignments
   const assignments: VehicleAssignment[] = vehicles.map(vehicle => {
     const existingOrders = orders.filter(o => (o as any).assigned_vehicle_id === vehicle.id)
     const existingWeight = existingOrders.reduce((sum, o) => sum + (o.totalWeight || (o.drums || 0) * 200), 0)
@@ -995,45 +1264,120 @@ export async function assignVehiclesWithDrivers(
     }
   })
   
-  // ROUTE-FIRST PLANNING: Plan optimal routes before assigning vehicles
-  const plannedRoutes = await planRoutesFirst(orders, vehicles, {
-    maxRegionDistance: 100, // Merge regions within 100km (tighter grouping)
-    targetRouteWeight: 2500 // Target 2500kg per route (smaller routes = more vehicles)
+  // STEP 1: Create geographic clusters based on proximity
+  console.log(`\n=== STEP 1: GEOGRAPHIC CLUSTERING ===`)
+  const clusters = createGeographicClusters(deliveryOrders)
+  
+  console.log(`Created ${clusters.length} geographic clusters:`)
+  clusters.forEach((cluster, idx) => {
+    const totalWeight = cluster.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
+    const locations = [...new Set(cluster.map(o => o.location || 'Unknown'))]
+    console.log(`  Cluster ${idx + 1}: ${cluster.length} orders, ${Math.round(totalWeight)}kg, ${locations.join(', ')}`)
   })
   
-  // Assign vehicles to planned routes
-  const routeVehicleMap = assignVehiclesToRoutes(plannedRoutes, vehicles)
+  // STEP 2: Assign vehicles to clusters based on weight
+  console.log(`\n=== STEP 2: VEHICLE ASSIGNMENT BY WEIGHT ===`)
+  let unassignedOrders: Order[] = []
   
-  // Apply planned routes to assignments
-  console.log(`\n=== APPLYING PLANNED ROUTES TO VEHICLES ===`)
-  for (const [route, vehicle] of routeVehicleMap) {
-    const assignment = assignments.find(a => a.vehicle.id === vehicle.id)
-    if (assignment) {
-      assignment.assignedOrders = route.orders
-      assignment.totalWeight = route.totalWeight
-      assignment.utilization = (route.totalWeight / assignment.capacity) * 100
-      assignment.destinationGroup = route.region
-      console.log(`  ✓ ${vehicle.registration_number}: ${route.name} (${route.orders.length} orders, ${Math.round(assignment.utilization)}%)`)  
+  // Sort clusters by total weight (heaviest first)
+  const sortedClusters = clusters.sort((a, b) => {
+    const weightA = a.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
+    const weightB = b.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
+    return weightB - weightA
+  })
+  
+  for (const cluster of sortedClusters) {
+    const clusterWeight = cluster.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
+    const clusterLocation = cluster[0]?.location || 'Unknown'
+    
+    // Find best vehicle for this cluster weight
+    const suitableVehicle = findBestVehicleForWeight(clusterWeight, assignments, cluster)
+    
+    if (suitableVehicle) {
+      // Assign entire cluster to vehicle
+      suitableVehicle.assignedOrders.push(...cluster)
+      suitableVehicle.totalWeight += clusterWeight
+      suitableVehicle.utilization = (suitableVehicle.totalWeight / suitableVehicle.capacity) * 100
+      suitableVehicle.destinationGroup = clusterLocation
+      
+      const vehicleType = getVehicleTypeName(suitableVehicle.vehicle)
+      console.log(`  ✓ Cluster (${Math.round(clusterWeight)}kg) → ${suitableVehicle.vehicle.registration_number} ${vehicleType} (${Math.round(suitableVehicle.utilization)}% full)`)
+    } else {
+      console.log(`  ✗ No suitable vehicle for cluster (${Math.round(clusterWeight)}kg)`)
+      unassignedOrders.push(...cluster)
     }
   }
   
-  // Track unassigned orders from route planning
-  const assignedOrders = new Set(Array.from(routeVehicleMap.keys()).flatMap(r => r.orders))
-  let unassignedOrders = orders.filter(o => !assignedOrders.has(o))
-  console.log(`Unassigned after route planning: ${unassignedOrders.length} orders`)
+  // STEP 3: Single order consolidation
+  console.log(`\n=== STEP 3: SINGLE ORDER CONSOLIDATION ===`)
+  const singleOrderVehicles = assignments.filter(a => a.assignedOrders.length === 1)
   
-  console.log(`\n=== VEHICLE CAPACITY SUMMARY ===`)
-  const activeVehicles = assignments.filter(a => a.assignedOrders.length > 0)
-  console.log(`Active vehicles: ${activeVehicles.length}/${assignments.length}`)
-  for (const assignment of activeVehicles) {
-    console.log(`  ${assignment.vehicle.registration_number}: ${assignment.assignedOrders.length} orders, ${Math.round(assignment.totalWeight)}kg, ${Math.round(assignment.utilization)}% full`)
+  for (const singleVehicle of singleOrderVehicles) {
+    const singleOrder = singleVehicle.assignedOrders[0]
+    if (!singleOrder.latitude || !singleOrder.longitude) continue
+    
+    console.log(`\nChecking single order: ${singleOrder.customerName} (${singleVehicle.vehicle.registration_number})`)
+    
+    // Find vehicles with multiple orders that have capacity and nearby orders
+    const nearbyVehicles = assignments
+      .filter(a => a !== singleVehicle && a.assignedOrders.length > 1)
+      .map(a => {
+        // Check capacity
+        const remainingCapacity = a.capacity * 0.95 - a.totalWeight
+        const orderWeight = singleOrder.totalWeight || 0
+        if (remainingCapacity < orderWeight) return null
+        
+        // Check restrictions
+        if (!canAssignOrderToVehicle(singleOrder, a, assignments)) return null
+        
+        // Find closest order in this vehicle
+        const distances = a.assignedOrders
+          .filter(o => o.latitude && o.longitude)
+          .map(o => haversineDistance(
+            singleOrder.latitude!, singleOrder.longitude!,
+            o.latitude!, o.longitude!
+          ))
+        
+        const minDistance = Math.min(...distances)
+        return { vehicle: a, distance: minDistance }
+      })
+      .filter(Boolean)
+      .sort((a, b) => a!.distance - b!.distance)
+    
+    // If found nearby vehicle (within 50km), consolidate
+    if (nearbyVehicles.length > 0 && nearbyVehicles[0]!.distance <= 50) {
+      const targetVehicle = nearbyVehicles[0]!.vehicle
+      const orderWeight = singleOrder.totalWeight || 0
+      
+      // Move order to target vehicle
+      targetVehicle.assignedOrders.push(singleOrder)
+      targetVehicle.totalWeight += orderWeight
+      targetVehicle.utilization = (targetVehicle.totalWeight / targetVehicle.capacity) * 100
+      
+      // Clear single vehicle
+      singleVehicle.assignedOrders = []
+      singleVehicle.totalWeight = 0
+      singleVehicle.utilization = 0
+      singleVehicle.destinationGroup = undefined
+      
+      console.log(`  ✓ Consolidated ${singleOrder.customerName}: ${singleVehicle.vehicle.registration_number} → ${targetVehicle.vehicle.registration_number} (${Math.round(nearbyVehicles[0]!.distance)}km away)`)
+    } else {
+      console.log(`  ✗ No nearby vehicles for ${singleOrder.customerName} (closest: ${nearbyVehicles[0]?.distance.toFixed(1) || 'N/A'}km)`)
+    }
   }
   
-  // Skip all old logic - route-first planning already handled everything
-  console.log(`\n=== SKIPPING OLD ASSIGNMENT LOGIC (Using Route-First Results) ===`)
+  console.log(`\n=== ASSIGNMENT SUMMARY ===`)
+  const activeVehicles = assignments.filter(a => a.assignedOrders.length > 0)
+  console.log(`Active vehicles: ${activeVehicles.length}/${assignments.length}`)
+  console.log(`Unassigned orders: ${unassignedOrders.length}`)
   
-  // Assign drivers to vehicles with orders
-  console.log(`\n=== DRIVER ASSIGNMENT ===`)
+  for (const assignment of activeVehicles) {
+    const locations = [...new Set(assignment.assignedOrders.map(o => o.location || 'Unknown'))]
+    console.log(`  ${assignment.vehicle.registration_number}: ${assignment.assignedOrders.length} orders, ${Math.round(assignment.totalWeight)}kg, ${Math.round(assignment.utilization)}% full - ${locations.join(', ')}`)
+  }
+  
+  // STEP 4: Assign drivers to vehicles
+  console.log(`\n=== STEP 4: DRIVER ASSIGNMENT ===`)
   
   // Sort assignments to ensure CN30435 is processed before Mission Trailer
   const sortedAssignments = [...assignments].sort((a, b) => {
@@ -1064,8 +1408,8 @@ export async function assignVehiclesWithDrivers(
     }
   }
   
-  // Optimize route sequences
-  console.log('\n=== ROUTE SEQUENCE OPTIMIZATION ===')
+  // STEP 5: Optimize route sequences
+  console.log('\n=== STEP 5: ROUTE OPTIMIZATION ===')
   const DEPOT_LAT = -33.9249
   const DEPOT_LON = 18.6369
   
@@ -1083,10 +1427,10 @@ export async function assignVehiclesWithDrivers(
       assignment.routeDistance = result.distance
       assignment.routeDuration = result.duration
       
-      // Store full route geometry for map display
-      if (result.geometry) {
+      // Store route geometry safely
+      if (result.geometry && result.geometry.coordinates) {
         (assignment as any).routeGeometry = result.geometry
-        console.log(`Stored route geometry for ${assignment.vehicle.registration_number}: ${result.geometry.coordinates?.length || 0} points`)
+        console.log(`Stored route geometry for ${assignment.vehicle.registration_number}: ${result.geometry.coordinates.length} points`)
       }
     }
   }
@@ -1102,103 +1446,118 @@ export async function assignVehiclesWithDrivers(
     sortedOrders = sortedOrders.slice(0, maxOrdersToAssign)
   }
   
-  // STEP 0: SMART GEOGRAPHIC CLUSTERING (Optimize for fewer vehicles)
-  console.log(`\n=== STEP 0: SMART GEOGRAPHIC CLUSTERING ===`)
+  // STEP 0: ENHANCED MUNICIPALITY-BASED CLUSTERING
+  console.log(`\n=== STEP 0: MUNICIPALITY-BASED GEOGRAPHIC CLUSTERING ===`)
   const ordersWithCoords = orders.filter(o => o.latitude && o.longitude)
-  const clusters: Order[][] = []
-  const clustered = new Set<Order>()
   
-  // Calculate total weight to determine optimal cluster size
-  const totalWeight = ordersWithCoords.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
-  const avgVehicleCapacity = vehicles.reduce((sum, v) => sum + v.load_capacity, 0) / vehicles.length
-  const estimatedVehiclesNeeded = Math.ceil(totalWeight / (avgVehicleCapacity * 0.85))
+  // Group orders by municipality first, then by proximity within municipality
+  const municipalityGroups = new Map<string, Order[]>()
+  const unknownLocationOrders: Order[] = []
   
-  console.log(`Total weight: ${Math.round(totalWeight)}kg, Avg vehicle capacity: ${Math.round(avgVehicleCapacity)}kg`)
-  console.log(`Estimated vehicles needed: ${estimatedVehiclesNeeded}`)
-  
-  // Use adaptive clustering radius based on order density
-  const INITIAL_RADIUS = 40 // Start with 40km radius for better consolidation
+  // First pass: Group by existing location_group or reverse geocode
+  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
   
   for (const order of ordersWithCoords) {
-    if (clustered.has(order)) continue
+    let municipality = 'Unknown'
+    let region = 'Other'
     
-    const cluster: Order[] = [order]
-    clustered.add(order)
-    let clusterWeight = order.totalWeight || 0
-    
-    // Build cluster until it reaches ~80% of average vehicle capacity or radius limit
-    const targetWeight = avgVehicleCapacity * 0.80
-    
-    // Find all orders within radius of cluster centroid
-    let addedToCluster = true
-    while (addedToCluster && clusterWeight < targetWeight) {
-      addedToCluster = false
-      const centroid = calculateCentroid(cluster)
-      if (!centroid) break
-      
-      // Find nearest unclustered order to centroid
-      let nearestOrder: Order | null = null
-      let minDist = Infinity
-      
-      for (const other of ordersWithCoords) {
-        if (clustered.has(other)) continue
-        
-        const dist = haversineDistance(
-          centroid.lat, centroid.lon,
-          other.latitude!, other.longitude!
-        )
-        
-        if (dist <= INITIAL_RADIUS && dist < minDist) {
-          minDist = dist
-          nearestOrder = other
-        }
-      }
-      
-      if (nearestOrder) {
-        cluster.push(nearestOrder)
-        clustered.add(nearestOrder)
-        clusterWeight += nearestOrder.totalWeight || 0
-        addedToCluster = true
-      }
-    }
-    
-    clusters.push(cluster)
-  }
-  
-  // Reverse geocode cluster centroids to get suburb names
-  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
-  for (let idx = 0; idx < clusters.length; idx++) {
-    const cluster = clusters[idx]
-    const centroid = calculateCentroid(cluster)
-    const clusterWeight = cluster.reduce((s, o) => s + (o.totalWeight || 0), 0)
-    let zoneName = `Zone ${idx + 1}`
-    
-    if (centroid && mapboxToken) {
+    // Use existing location_group if available
+    if (order.location_group) {
+      const mapping = getMunicipalityAndRegion(order.location_group)
+      municipality = mapping.municipality
+      region = mapping.region
+    } else if (mapboxToken) {
+      // Reverse geocode to get municipality
       try {
         const response = await fetch(
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${centroid.lon},${centroid.lat}.json?access_token=${mapboxToken}&types=place,locality,neighborhood`
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${order.longitude},${order.latitude}.json?access_token=${mapboxToken}&types=place,locality,district`
         )
         const data = await response.json()
         if (data.features?.[0]) {
-          zoneName = data.features[0].text || data.features[0].place_name?.split(',')[0] || zoneName
+          const place = data.features[0]
+          const placeName = place.text || place.place_name?.split(',')[0] || 'Unknown'
+          const mapping = getMunicipalityAndRegion(placeName)
+          municipality = mapping.municipality
+          region = mapping.region
+          
+          // Update order with discovered location
+          order.location_group = placeName
+          ;(order as any).location_group = placeName
+          ;(order as any).locationGroup = placeName
         }
       } catch (error) {
-        console.error(`Failed to reverse geocode cluster ${idx + 1}:`, error)
+        console.error(`Failed to reverse geocode order ${order.customerName}:`, error)
       }
     }
     
-    cluster.forEach(order => {
-      order.location_group = zoneName
-      ;(order as any).location_group = zoneName
-      ;(order as any).locationGroup = zoneName
-    })
-    
-    const vehiclesNeeded = Math.ceil(clusterWeight / (avgVehicleCapacity * 0.85))
-    console.log(`Cluster ${idx + 1}: ${zoneName} (${cluster.length} orders, ${Math.round(clusterWeight)}kg, ~${vehiclesNeeded} vehicle${vehiclesNeeded > 1 ? 's' : ''})`)
+    // Group by municipality
+    const municipalityKey = `${municipality} (${region})`
+    if (!municipalityGroups.has(municipalityKey)) {
+      municipalityGroups.set(municipalityKey, [])
+    }
+    municipalityGroups.get(municipalityKey)!.push(order)
   }
   
-  console.log(`\nCreated ${clusters.length} optimized clusters (target: ${estimatedVehiclesNeeded} vehicles)`)
-  console.log(`Clustering strategy: Build clusters up to ${Math.round(avgVehicleCapacity * 0.80)}kg within ${INITIAL_RADIUS}km radius`)
+  console.log(`\nFound ${municipalityGroups.size} municipalities:`)
+  for (const [municipality, orders] of municipalityGroups) {
+    const totalWeight = orders.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
+    console.log(`  ${municipality}: ${orders.length} orders, ${Math.round(totalWeight)}kg`)
+  }
+  
+  // Second pass: Create sub-clusters within large municipalities
+  const clusters: Order[][] = []
+  const avgVehicleCapacity = vehicles.reduce((sum, v) => sum + v.load_capacity, 0) / vehicles.length
+  const targetClusterWeight = avgVehicleCapacity * 0.80 // Target 80% of vehicle capacity per cluster
+  
+  console.log(`\n=== CREATING SUB-CLUSTERS WITHIN MUNICIPALITIES ===`)
+  console.log(`Target cluster weight: ${Math.round(targetClusterWeight)}kg (80% of avg vehicle capacity)`)
+  
+  for (const [municipalityKey, municipalityOrders] of municipalityGroups) {
+    const totalMunicipalityWeight = municipalityOrders.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
+    
+    if (totalMunicipalityWeight <= targetClusterWeight) {
+      // Municipality fits in one vehicle - keep as single cluster
+      clusters.push(municipalityOrders)
+      console.log(`  ${municipalityKey}: Single cluster (${Math.round(totalMunicipalityWeight)}kg)`)
+    } else {
+      // Municipality needs multiple vehicles - create sub-clusters by proximity
+      console.log(`  ${municipalityKey}: Creating sub-clusters (${Math.round(totalMunicipalityWeight)}kg total)`)
+      
+      const subClusters = createProximitySubClusters(municipalityOrders, targetClusterWeight)
+      clusters.push(...subClusters)
+      
+      subClusters.forEach((cluster, idx) => {
+        const clusterWeight = cluster.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
+        console.log(`    Sub-cluster ${idx + 1}: ${cluster.length} orders, ${Math.round(clusterWeight)}kg`)
+      })
+    }
+  }
+  
+  // Update orders with cluster information
+  clusters.forEach((cluster, idx) => {
+    const clusterWeight = cluster.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
+    const firstOrderLocation = cluster[0]?.location_group || `Cluster ${idx + 1}`
+    const clusterName = cluster.length > 1 && cluster.every(o => o.location_group === firstOrderLocation) 
+      ? firstOrderLocation 
+      : `${firstOrderLocation} +${cluster.length - 1}`
+    
+    cluster.forEach(order => {
+      order.location_group = clusterName
+      ;(order as any).location_group = clusterName
+      ;(order as any).locationGroup = clusterName
+    })
+  })
+  
+  const totalWeight = clusters.reduce((sum, cluster) => 
+    sum + cluster.reduce((clusterSum, o) => clusterSum + (o.totalWeight || 0), 0), 0
+  )
+  const estimatedVehiclesNeeded = Math.ceil(totalWeight / (avgVehicleCapacity * 0.85))
+  
+  console.log(`\nClustering complete:`)
+  console.log(`  Created ${clusters.length} clusters from ${municipalityGroups.size} municipalities`)
+  console.log(`  Total weight: ${Math.round(totalWeight)}kg`)
+  console.log(`  Estimated vehicles needed: ${estimatedVehiclesNeeded}`)
+  console.log(`  Strategy: Municipality-based clustering with proximity sub-clustering`)
   
   // Sort orders by priority
   let sortedOrders = [...orders].sort((a, b) => {
@@ -1459,27 +1818,24 @@ export async function assignVehiclesWithDrivers(
       // Find compatible vehicle for this route - PRIORITIZE PAIRED VEHICLES
       let bestVehicle = null
       
-      // SPECIAL RULE: Only pair Mission Trailer + CN30435 if there's enough load (>800kg total)
-      const isKimberleyRoute = saving.orderI.location_group === 'Kimberley' || saving.orderJ.location_group === 'Kimberley'
-      const hasEnoughLoadForPairing = totalWeight >= 800 // Minimum load to justify pairing
+      // ENHANCED RULE: If Mission Trailer is available, automatically pair with CN30435
+      const missionTrailer = assignments.find(v => v.vehicle.registration_number === 'Mission Trailer')
+      const cn30435 = assignments.find(v => v.vehicle.registration_number === 'CN30435')
       
-      if (isKimberleyRoute && hasEnoughLoadForPairing) {
-        // NEW RULE: Only pair if there's sufficient load to justify both vehicles
-        const missionTrailer = assignments.find(v => v.vehicle.registration_number === 'Mission Trailer')
-        const cn30435 = assignments.find(v => v.vehicle.registration_number === 'CN30435')
+      // Check if either paired vehicle is available and orders are compatible
+      if (missionTrailer && cn30435 && 
+          missionTrailer.assignedOrders.length === 0 && cn30435.assignedOrders.length === 0) {
         
-        if (missionTrailer && cn30435 && 
-            missionTrailer.assignedOrders.length === 0 && cn30435.assignedOrders.length === 0) {
-          // Check combined capacity of paired vehicles
-          const combinedCapacity = missionTrailer.capacity + cn30435.capacity
-          if (combinedCapacity * 0.95 >= totalWeight &&
-              canAssignOrderToVehicle(saving.orderI, missionTrailer, assignments) &&
-              canAssignOrderToVehicle(saving.orderJ, missionTrailer, assignments)) {
-            
-            // Assign to CN30435 first (vehicle, not trailer)
-            bestVehicle = cn30435
-            console.log(`  🔗 Paired assignment: CN30435 + Mission Trailer for Kimberley route (${totalWeight}kg load)`)
-          }
+        const combinedCapacity = missionTrailer.capacity + cn30435.capacity
+        const canAssignToMissionTrailer = canAssignOrderToVehicle(saving.orderI, missionTrailer, assignments) &&
+                                         canAssignOrderToVehicle(saving.orderJ, missionTrailer, assignments)
+        const canAssignToCN30435 = canAssignOrderToVehicle(saving.orderI, cn30435, assignments) &&
+                                   canAssignOrderToVehicle(saving.orderJ, cn30435, assignments)
+        
+        if (combinedCapacity * 0.95 >= totalWeight && (canAssignToMissionTrailer || canAssignToCN30435)) {
+          // Prefer Mission Trailer if it can handle the orders, otherwise use CN30435
+          bestVehicle = canAssignToMissionTrailer ? missionTrailer : cn30435
+          console.log(`  🔗 Paired assignment: ${bestVehicle.vehicle.registration_number} + paired vehicle (${totalWeight}kg load)`)
         }
       }
       
@@ -1525,7 +1881,16 @@ export async function assignVehiclesWithDrivers(
         bestVehicle.utilization = (totalWeight / bestVehicle.capacity) * 100
         bestVehicle.destinationGroup = saving.orderI.location_group || saving.orderJ.location_group
         
-        // NEW RULE: Only prepare Mission Trailer for pairing if CN30435 has enough load to justify both vehicles
+        // ENHANCED RULE: If Mission Trailer gets orders, automatically prepare CN30435 for pairing
+        if (bestVehicle.vehicle.registration_number === 'Mission Trailer') {
+          const cn30435 = assignments.find(v => v.vehicle.registration_number === 'CN30435')
+          if (cn30435 && cn30435.assignedOrders.length === 0) {
+            cn30435.destinationGroup = bestVehicle.destinationGroup
+            console.log(`  🔗 Prepared CN30435 for pairing with Mission Trailer (${bestVehicle.destinationGroup})`)
+          }
+        }
+        
+        // Also prepare Mission Trailer if CN30435 has enough load
         if (bestVehicle.vehicle.registration_number === 'CN30435' && totalWeight >= 800) {
           const missionTrailer = assignments.find(v => v.vehicle.registration_number === 'Mission Trailer')
           if (missionTrailer && missionTrailer.assignedOrders.length === 0) {
@@ -1588,23 +1953,27 @@ export async function assignVehiclesWithDrivers(
     const finalRemaining = validOrders.filter((_, idx) => !assignedOrderIds.has(idx) && 
       !assignments.some(a => a.assignedOrders.includes(validOrders[idx])))
     
-    // Group remaining orders by destination
-    const ordersByDestination = new Map<string, Order[]>()
+    // Group remaining orders by municipality and region
+    const ordersByMunicipality = new Map<string, Order[]>()
     for (const order of finalRemaining) {
-      const dest = order.location_group || 'Unknown'
-      if (!ordersByDestination.has(dest)) {
-        ordersByDestination.set(dest, [])
+      const zone = order.location_group || 'Unknown'
+      const mapping = getMunicipalityAndRegion(zone)
+      const municipalityKey = `${mapping.municipality} (${mapping.region})`
+      
+      if (!ordersByMunicipality.has(municipalityKey)) {
+        ordersByMunicipality.set(municipalityKey, [])
       }
-      ordersByDestination.get(dest)!.push(order)
+      ordersByMunicipality.get(municipalityKey)!.push(order)
     }
     
-    console.log(`\nGrouping ${finalRemaining.length} remaining orders by destination:`)
-    for (const [dest, destOrders] of ordersByDestination) {
-      console.log(`  ${dest}: ${destOrders.length} orders`)
+    console.log(`\nGrouping ${finalRemaining.length} remaining orders by municipality:`)
+    for (const [municipality, destOrders] of ordersByMunicipality) {
+      const totalWeight = destOrders.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
+      console.log(`  ${municipality}: ${destOrders.length} orders, ${Math.round(totalWeight)}kg`)
     }
     
-    // Assign a vehicle to each destination group
-    for (const [dest, destOrders] of ordersByDestination) {
+    // Assign a vehicle to each municipality group
+    for (const [municipality, destOrders] of ordersByMunicipality) {
       const totalWeight = destOrders.reduce((sum, o) => sum + (o.totalWeight || (o.drums || 0) * 200), 0)
       
       // Find available vehicle that can handle all orders for this destination
@@ -1622,10 +1991,10 @@ export async function assignVehiclesWithDrivers(
         availableVehicle.destinationGroup = dest
         
         routes.push({ vehicle: availableVehicle, orders: destOrders })
-        console.log(`  ✓ Assigned ${dest} route → ${availableVehicle.vehicle.registration_number} (${destOrders.length} orders, ${Math.round(availableVehicle.utilization)}% full)`)
+        console.log(`  ✓ Assigned ${municipality} route → ${availableVehicle.vehicle.registration_number} (${destOrders.length} orders, ${Math.round(availableVehicle.utilization)}% full)`)
       } else {
         // If can't fit all orders in one vehicle, try to split
-        console.log(`  ⚠️ ${dest}: ${destOrders.length} orders too heavy for single vehicle (${totalWeight}kg)`)
+        console.log(`  ⚠️ ${municipality}: ${destOrders.length} orders too heavy for single vehicle (${totalWeight}kg)`)
         
         // Sort orders by weight (heaviest first)
         const sortedOrders = [...destOrders].sort((a, b) => {
@@ -1641,13 +2010,14 @@ export async function assignVehiclesWithDrivers(
           // Try to add to existing vehicle going to same destination
           let assigned = false
           for (const route of routes) {
-            if (route.vehicle.destinationGroup === dest) {
+            const routeMunicipality = route.vehicle.destinationGroup
+            if (routeMunicipality === municipality) {
               const remainingCapacity = route.vehicle.capacity * 0.95 - route.vehicle.totalWeight
               if (remainingCapacity >= orderWeight && canAssignOrderToVehicle(order, route.vehicle, assignments)) {
                 route.vehicle.assignedOrders.push(order)
                 route.vehicle.totalWeight += orderWeight
                 route.vehicle.utilization = (route.vehicle.totalWeight / route.vehicle.capacity) * 100
-                console.log(`    ✓ Added ${order.customerName} to existing ${dest} route (${Math.round(route.vehicle.utilization)}% full)`)
+                console.log(`    ✓ Added ${order.customerName} to existing ${municipality} route (${Math.round(route.vehicle.utilization)}% full)`)
                 assigned = true
                 break
               }
@@ -1666,9 +2036,9 @@ export async function assignVehiclesWithDrivers(
               newVehicle.assignedOrders = [order]
               newVehicle.totalWeight = orderWeight
               newVehicle.utilization = (orderWeight / newVehicle.capacity) * 100
-              newVehicle.destinationGroup = dest
+              newVehicle.destinationGroup = municipality
               routes.push({ vehicle: newVehicle, orders: [order] })
-              console.log(`    ✓ New ${dest} route → ${newVehicle.vehicle.registration_number} (${Math.round(newVehicle.utilization)}% full)`)
+              console.log(`    ✓ New ${municipality} route → ${newVehicle.vehicle.registration_number} (${Math.round(newVehicle.utilization)}% full)`)
             } else {
               unassignedOrders.push(order)
               console.log(`    ✗ ${order.customerName} - No available vehicle`)
@@ -2138,8 +2508,8 @@ export async function assignVehiclesWithDrivers(
     for (const order of ordersToMove) {
       const orderWeight = order.totalWeight || (order.drums || 0) * 200
       
-      // Find best fit vehicle (same region, has capacity, better utilization)
-      const region = order.location_group ? getRegionForZone(order.location_group) : null
+      // Find best fit vehicle (same municipality/region, has capacity, better utilization)
+      const orderMapping = order.location_group ? getMunicipalityAndRegion(order.location_group) : null
       
       const betterFits = assignments
         .filter(a => 
@@ -2147,9 +2517,17 @@ export async function assignVehiclesWithDrivers(
           a.assignedOrders.length > 0 &&
           a.utilization < 90 &&
           a.destinationGroup &&
-          region &&
-          getRegionForZone(a.destinationGroup) === region
+          orderMapping
         )
+        .filter(a => {
+          // Check if vehicle's destination is in same municipality or region
+          const vehicleZone = a.destinationGroup?.split(' (')[0] || a.destinationGroup || ''
+          const vehicleMapping = getMunicipalityAndRegion(vehicleZone)
+          
+          // Prefer same municipality, fallback to same region
+          return vehicleMapping.municipality === orderMapping!.municipality ||
+                 vehicleMapping.region === orderMapping!.region
+        })
         .map(a => {
           const newUtil = ((a.totalWeight + orderWeight) / a.capacity) * 100
           return { vehicle: a, newUtil }
@@ -2160,24 +2538,37 @@ export async function assignVehiclesWithDrivers(
       if (betterFits.length > 0) {
         const target = betterFits[0].vehicle
         
-        // Check 50km radius
-        let withinRadius = true
-        if (order.latitude && order.longitude) {
+        // Check municipality/region compatibility and distance
+        let isCompatible = true
+        const orderMapping = order.location_group ? getMunicipalityAndRegion(order.location_group) : null
+        
+        if (order.latitude && order.longitude && orderMapping) {
           for (const existing of target.assignedOrders) {
             if (existing.latitude && existing.longitude) {
-              const dist = haversineDistance(
-                order.latitude, order.longitude,
-                existing.latitude, existing.longitude
-              )
-              if (dist > 50) {
-                withinRadius = false
-                break
+              const existingMapping = existing.location_group ? getMunicipalityAndRegion(existing.location_group) : null
+              
+              if (existingMapping) {
+                // Check if same municipality or region
+                const sameArea = orderMapping.municipality === existingMapping.municipality ||
+                                orderMapping.region === existingMapping.region
+                
+                if (!sameArea) {
+                  // Different municipality/region - check distance
+                  const dist = haversineDistance(
+                    order.latitude, order.longitude,
+                    existing.latitude, existing.longitude
+                  )
+                  if (dist > 75) { // Increased tolerance for cross-municipality
+                    isCompatible = false
+                    break
+                  }
+                }
               }
             }
           }
         }
         
-        if (withinRadius && canAssignOrderToVehicle(order, target, assignments)) {
+        if (isCompatible && canAssignOrderToVehicle(order, target, assignments)) {
           // Move order
           scattered.assignedOrders = scattered.assignedOrders.filter(o => o !== order)
           scattered.totalWeight -= orderWeight
@@ -2360,21 +2751,29 @@ export async function assignVehiclesWithDrivers(
   // DON'T schedule orders here - they'll be handled by the calling function
   // This function only assigns to vehicles, scheduling happens at the page level
   
-  // Set destination groups based on order location_group (already clustered)
+  // Set destination groups based on municipality and region clustering
   console.log(`\n=== SETTING DESTINATION REGIONS ===`)
   for (const assignment of assignments) {
     if (assignment.assignedOrders.length > 0 && !assignment.destinationGroup) {
-      // Use the location_group from orders (already set during clustering)
+      // Use the location_group from orders (already set during municipality clustering)
       const orderZones = assignment.assignedOrders.map(o => o.location_group || o.locationGroup).filter(Boolean)
       if (orderZones.length > 0) {
-        // Use most common zone
+        // Use most common zone, but also show municipality/region info
         const zoneCounts = orderZones.reduce((acc, zone) => {
           acc[zone] = (acc[zone] || 0) + 1
           return acc
         }, {})
         const sortedZones = Object.entries(zoneCounts).sort((a: any, b: any) => b[1] - a[1])
-        assignment.destinationGroup = sortedZones[0][0] as string
-        console.log(`${assignment.vehicle.registration_number}: ${assignment.destinationGroup} (${assignment.assignedOrders.length} orders)`)
+        const primaryZone = sortedZones[0][0] as string
+        
+        // Get municipality and region for better grouping display
+        const mapping = getMunicipalityAndRegion(primaryZone)
+        const destinationName = mapping.municipality !== 'Unknown' 
+          ? `${primaryZone} (${mapping.municipality})` 
+          : primaryZone
+        
+        assignment.destinationGroup = destinationName
+        console.log(`${assignment.vehicle.registration_number}: ${assignment.destinationGroup} (${assignment.assignedOrders.length} orders, ${mapping.region} region)`)
       }
     }
   }

@@ -46,9 +46,58 @@ function calculateCentroid(orders: Order[]): { lat: number; lon: number } | null
 }
 
 /**
- * Get region from coordinates using Geoapify reverse geocoding
+ * Enhanced municipality and region mapping for route planning
  */
-async function getRegionFromCoordinates(lat: number, lon: number): Promise<string> {
+function getMunicipalityAndRegionForRoutes(zone: string): { municipality: string; region: string } {
+  const municipalityMap: Record<string, { municipality: string; region: string }> = {
+    // City of Cape Town Municipality
+    'Mfuleni': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Khayelitsha': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Mitchells Plain': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Cape Town CBD': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Bellville': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Parow': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Goodwood': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Table View': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Milnerton': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Wynberg': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Claremont': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Constantia': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Durbanville': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Brackenfell': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    'Kuils River': { municipality: 'City of Cape Town', region: 'Cape Town Metro' },
+    
+    // Stellenbosch Municipality
+    'Stellenbosch': { municipality: 'Stellenbosch', region: 'Boland' },
+    'Somerset West': { municipality: 'Stellenbosch', region: 'Boland' },
+    'Strand': { municipality: 'Stellenbosch', region: 'Boland' },
+    
+    // Drakenstein Municipality
+    'Paarl': { municipality: 'Drakenstein', region: 'Boland' },
+    'Wellington': { municipality: 'Drakenstein', region: 'Boland' },
+    
+    // Other municipalities
+    'Worcester': { municipality: 'Breede Valley', region: 'Boland' },
+    'Ceres': { municipality: 'Witzenberg', region: 'Boland' },
+    'Robertson': { municipality: 'Langeberg', region: 'Boland' },
+    'Swellendam': { municipality: 'Swellendam', region: 'Overberg' },
+    'Hermanus': { municipality: 'Overstrand', region: 'Overberg' },
+    'Caledon': { municipality: 'Theewaterskloof', region: 'Overberg' },
+    'George': { municipality: 'George', region: 'Garden Route' },
+    'Mossel Bay': { municipality: 'Mossel Bay', region: 'Garden Route' },
+    'Knysna': { municipality: 'Knysna', region: 'Garden Route' },
+    'Plettenberg Bay': { municipality: 'Bitou', region: 'Garden Route' },
+    'Kimberley': { municipality: 'Sol Plaatje', region: 'Northern Cape' },
+    'Durban': { municipality: 'eThekwini', region: 'KwaZulu-Natal' }
+  }
+  
+  return municipalityMap[zone] || { municipality: 'Unknown', region: 'Other' }
+}
+
+/**
+ * Get municipality from coordinates using Geoapify reverse geocoding
+ */
+async function getMunicipalityFromCoordinates(lat: number, lon: number): Promise<string> {
   try {
     const response = await fetch(
       `https://api.geoapify.com/v1/geocode/reverse?lat=${lat}&lon=${lon}&apiKey=${process.env.NEXT_PUBLIC_GEOAPIFY_API_KEY}`
@@ -61,12 +110,16 @@ async function getRegionFromCoordinates(lat: number, lon: number): Promise<strin
     
     if (!feature) return 'Unknown'
     
-    // Extract city or county for grouping
+    // Extract city, county, or district for municipality mapping
     const city = feature.properties?.city
     const county = feature.properties?.county
+    const district = feature.properties?.district
     const state = feature.properties?.state
     
-    return city || county || state || 'Unknown'
+    const placeName = city || county || district || state || 'Unknown'
+    const mapping = getMunicipalityAndRegionForRoutes(placeName)
+    
+    return `${placeName} (${mapping.municipality})`
   } catch (error) {
     console.error('Reverse geocoding error:', error)
     return 'Unknown'
@@ -74,39 +127,48 @@ async function getRegionFromCoordinates(lat: number, lon: number): Promise<strin
 }
 
 /**
- * STEP 1: Map all order locations by reverse geocoding coordinates
+ * STEP 1: Map all order locations by municipality and region
  */
 async function mapOrderLocations(orders: Order[]): Promise<Map<string, Order[]>> {
-  console.log(`\n=== STEP 1: MAPPING ORDER LOCATIONS BY COORDINATES ===`)
+  console.log(`\n=== STEP 1: MAPPING ORDER LOCATIONS BY MUNICIPALITY ===`)
   
   const locationMap = new Map<string, Order[]>()
   
-  // Get regions for all orders with coordinates
+  // Get municipalities for all orders with coordinates
   for (const order of orders) {
     if (!order.latitude || !order.longitude) continue
     
-    const region = await getRegionFromCoordinates(order.latitude, order.longitude)
+    let municipality = 'Unknown'
     
-    if (!locationMap.has(region)) {
-      locationMap.set(region, [])
+    // Use existing location_group if available
+    if (order.location_group) {
+      const mapping = getMunicipalityAndRegionForRoutes(order.location_group)
+      municipality = `${order.location_group} (${mapping.municipality})`
+    } else {
+      // Reverse geocode to get municipality
+      municipality = await getMunicipalityFromCoordinates(order.latitude, order.longitude)
     }
-    locationMap.get(region)!.push(order)
+    
+    if (!locationMap.has(municipality)) {
+      locationMap.set(municipality, [])
+    }
+    locationMap.get(municipality)!.push(order)
   }
   
-  console.log(`Found ${locationMap.size} distinct regions:`)
-  for (const [region, orders] of locationMap) {
+  console.log(`Found ${locationMap.size} distinct municipalities:`)
+  for (const [municipality, orders] of locationMap) {
     const weight = orders.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
-    console.log(`  ${region}: ${orders.length} orders, ${Math.round(weight)}kg`)
+    console.log(`  ${municipality}: ${orders.length} orders, ${Math.round(weight)}kg`)
   }
   
   return locationMap
 }
 
 /**
- * STEP 2: Analyze distances between regions and identify mergeable pairs
+ * STEP 2: Analyze distances between municipalities and identify mergeable pairs
  */
-function analyzeRegionDistances(locationMap: Map<string, Order[]>): Map<string, { location: string; distance: number }[]> {
-  console.log(`\n=== STEP 2: ANALYZING REGION DISTANCES ===`)
+function analyzeMunicipalityDistances(locationMap: Map<string, Order[]>): Map<string, { location: string; distance: number }[]> {
+  console.log(`\n=== STEP 2: ANALYZING MUNICIPALITY DISTANCES ===`)
   
   const distanceMatrix = new Map<string, { location: string; distance: number }[]>()
   const locations = Array.from(locationMap.keys())
@@ -145,16 +207,16 @@ function analyzeRegionDistances(locationMap: Map<string, Order[]>): Map<string, 
 }
 
 /**
- * STEP 3: Group nearby regions into combined routes
- * Merges regions that are close to each other
+ * STEP 3: Group nearby municipalities into combined routes
+ * Merges municipalities that are close to each other or in same region
  */
-function groupNearbyRegions(
+function groupNearbyMunicipalities(
   locationMap: Map<string, Order[]>,
   distanceMatrix: Map<string, { location: string; distance: number }[]>,
   maxDistance: number = 100,
   targetWeight: number = 3000
 ): PlannedRoute[] {
-  console.log(`\n=== STEP 3: MERGING NEARBY REGIONS ===`)
+  console.log(`\n=== STEP 3: MERGING NEARBY MUNICIPALITIES ===`)
   console.log(`Max merge distance: ${maxDistance}km`)
   
   const routes: PlannedRoute[] = []
@@ -167,14 +229,14 @@ function groupNearbyRegions(
     if (centroid) regionCentroids.set(region, centroid)
   }
   
-  console.log(`\nRegions found:`)
-  for (const [region, orders] of locationMap) {
+  console.log(`\nMunicipalities found:`)
+  for (const [municipality, orders] of locationMap) {
     const totalWeight = orders.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
-    console.log(`  ${region}: ${orders.length} orders, ${Math.round(totalWeight)}kg`)
+    console.log(`  ${municipality}: ${orders.length} orders, ${Math.round(totalWeight)}kg`)
   }
   
-  // Sort regions by weight (heaviest first)
-  const sortedRegions = Array.from(locationMap.entries())
+  // Sort municipalities by weight (heaviest first)
+  const sortedMunicipalities = Array.from(locationMap.entries())
     .sort((a, b) => {
       const weightA = a[1].reduce((sum, o) => sum + (o.totalWeight || 0), 0)
       const weightB = b[1].reduce((sum, o) => sum + (o.totalWeight || 0), 0)
@@ -183,35 +245,43 @@ function groupNearbyRegions(
   
   console.log(`\n=== MERGING PROCESS ===`)
   
-  for (const [region, orders] of sortedRegions) {
-    if (used.has(region)) continue
+  for (const [municipality, orders] of sortedMunicipalities) {
+    if (used.has(municipality)) continue
     
-    const regionWeight = orders.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
-    const centroid = regionCentroids.get(region)
+    const municipalityWeight = orders.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
+    const centroid = regionCentroids.get(municipality)
     if (!centroid) continue
     
-    console.log(`\nStarting with ${region} (${Math.round(regionWeight)}kg, ${orders.length} orders)`)
+    console.log(`\nStarting with ${municipality} (${Math.round(municipalityWeight)}kg, ${orders.length} orders)`)
     
-    // Start with this region
+    // Start with this municipality
     let mergedOrders = [...orders]
-    let mergedWeight = regionWeight
-    const mergedRegions = [region]
-    used.add(region)
+    let mergedWeight = municipalityWeight
+    const mergedMunicipalities = [municipality]
+    used.add(municipality)
     
-    // Find nearby regions to merge
-    for (const [nearRegion, nearOrders] of sortedRegions) {
-      if (used.has(nearRegion)) continue
+    // Find nearby municipalities to merge
+    for (const [nearMunicipality, nearOrders] of sortedMunicipalities) {
+      if (used.has(nearMunicipality)) continue
       
-      const nearCentroid = regionCentroids.get(nearRegion)
+      const nearCentroid = regionCentroids.get(nearMunicipality)
       if (!nearCentroid) continue
       
-      // Calculate distance between region centroids
+      // Check if same region first (prioritize regional grouping)
+      const currentMapping = getMunicipalityAndRegionForRoutes(municipality.split(' (')[0] || municipality)
+      const nearMapping = getMunicipalityAndRegionForRoutes(nearMunicipality.split(' (')[0] || nearMunicipality)
+      const sameRegion = currentMapping.region === nearMapping.region
+      
+      // Calculate distance between municipality centroids
       const distance = haversineDistance(
         centroid.lat, centroid.lon,
         nearCentroid.lat, nearCentroid.lon
       )
       
-      if (distance > maxDistance) continue
+      // Allow longer distances for same region
+      const maxAllowedDistance = sameRegion ? maxDistance * 1.5 : maxDistance
+      
+      if (distance > maxAllowedDistance) continue
       
       const nearWeight = nearOrders.reduce((sum, o) => sum + (o.totalWeight || 0), 0)
       const combinedWeight = mergedWeight + nearWeight
@@ -220,11 +290,12 @@ function groupNearbyRegions(
       if (combinedWeight <= targetWeight * 1.5) {
         mergedOrders.push(...nearOrders)
         mergedWeight = combinedWeight
-        mergedRegions.push(nearRegion)
-        used.add(nearRegion)
-        console.log(`  ✓ Merged ${nearRegion} (${Math.round(distance)}km away, +${Math.round(nearWeight)}kg) → Total: ${Math.round(mergedWeight)}kg`)
+        mergedMunicipalities.push(nearMunicipality)
+        used.add(nearMunicipality)
+        const regionNote = sameRegion ? ' [same region]' : ''
+        console.log(`  ✓ Merged ${nearMunicipality} (${Math.round(distance)}km away, +${Math.round(nearWeight)}kg)${regionNote} → Total: ${Math.round(mergedWeight)}kg`)
       } else {
-        console.log(`  ✗ Skipped ${nearRegion} (${Math.round(distance)}km away, would be ${Math.round(combinedWeight)}kg - too heavy)`)
+        console.log(`  ✗ Skipped ${nearMunicipality} (${Math.round(distance)}km away, would be ${Math.round(combinedWeight)}kg - too heavy)`)
       }
     }
     
@@ -232,9 +303,9 @@ function groupNearbyRegions(
     const finalCentroid = calculateCentroid(mergedOrders)
     if (!finalCentroid) continue
     
-    const routeName = mergedRegions.length > 1
-      ? `${mergedRegions[0]} +${mergedRegions.length - 1}`
-      : mergedRegions[0]
+    const routeName = mergedMunicipalities.length > 1
+      ? `${mergedMunicipalities[0].split(' (')[0]} +${mergedMunicipalities.length - 1}`
+      : mergedMunicipalities[0].split(' (')[0]
     
     routes.push({
       id: `route-${routes.length + 1}`,
@@ -243,7 +314,7 @@ function groupNearbyRegions(
       totalWeight: mergedWeight,
       estimatedDistance: 0,
       centroid: finalCentroid,
-      region: mergedRegions.join(' + ')
+      region: mergedMunicipalities.join(' + ')
     })
     
     console.log(`  → Created route: ${routeName} (${mergedOrders.length} orders, ${Math.round(mergedWeight)}kg)`)
@@ -496,8 +567,8 @@ export async function planRoutesFirst(
   const { maxRegionDistance = 100, targetRouteWeight = 3500 } = options
   
   const locationMap = await mapOrderLocations(orders)
-  const distanceMatrix = analyzeRegionDistances(locationMap)
-  const routes = groupNearbyRegions(locationMap, distanceMatrix, maxRegionDistance, targetRouteWeight)
+  const distanceMatrix = analyzeMunicipalityDistances(locationMap)
+  const routes = groupNearbyMunicipalities(locationMap, distanceMatrix, maxRegionDistance, targetRouteWeight)
   await optimizeRouteSequences(routes)
   assignVehiclesToRoutes(routes, vehicles)
   
